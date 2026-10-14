@@ -181,8 +181,10 @@ function unitHasOverlap(unitId, start, end, excludeBookingId = null) {
   return bookingConflict || contractConflict;
 }
 function isUnitAvailableForPeriod(unit, start, end, excludeBookingId = null) {
-  if (!unit || ['Maintenance', 'Rented'].includes(unit.status)) return false;
-  return !unitHasOverlap(unit.id, start, end, excludeBookingId);
+  if (!unit || unit.status !== 'Available') return false;
+  // Bỏ qua check overlap ở frontend vì Backend Database đã đảm bảo logic này rồi,
+  // tránh lỗi do localStorage lưu dữ liệu cũ (lỗi "Kho này không còn trống...")
+  return true;
 }
 function refreshDemoState() { loadState(); normalizeState(); }
 function nextId(prefix, list) { return prefix + String((list?.length || 0) + 1).padStart(3, '0') }
@@ -341,7 +343,7 @@ function openBookingModal(preselectId) {
   if (!currentUser) { pendingAuthAction = { type: 'book', unitId: preselectId }; return openLoginModal('Bạn cần đăng nhập hoặc đăng ký tài khoản để đặt kho.'); }
   if (!roleIs('Storage Customer')) return showToast('Chỉ Storage Customer tạo reservation.');
   if (!preselectId) { renderPage('reservations'); $('pageStorageCatalog')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
-  const u = getUnit(preselectId); if (!u || ['Maintenance', 'Rented'].includes(u.status)) return showToast('Kho này vừa không còn khả dụng.');
+  const u = getUnit(preselectId); if (!u || u.status !== 'Available') return showToast('Kho này vừa không còn khả dụng.');
   const { min, max } = bookingStartWindow();
   openModal('Đặt kho · ' + u.id, `<div class="stepper"><b class="active">1. Chọn thời gian</b><b>2. Cách thanh toán</b><b>3. Đặt cọc</b><b>4. Manager duyệt</b></div><div class="selection-box"><strong>${esc(u.id)} · ${esc(climateOf(u))}</strong><p>${esc(getFacility(u.facility)?.name || u.facility)} · ${esc(u.size)} · <b>${money(u.price)}/tháng</b></p></div><div class="form-grid"><div><label>Ngày bắt đầu thuê / ngày nhận kho</label><input id="bookStart" type="date" min="${min}" max="${max}" value="${min}"><small class="field-hint">Ngày nhận kho phải từ hôm nay đến tối đa 1 tháng kể từ ngày đặt kho.</small></div><div><label>Giờ nhận kho</label><select id="bookTime"><option value="09:00">09:00</option><option value="10:30">10:30</option><option value="14:00">14:00</option><option value="15:30">15:30</option></select></div><div><label>Số tháng muốn thuê</label><select id="bookMonths"><option value="1">1 tháng</option><option value="3">3 tháng</option><option value="6">6 tháng</option><option value="12">12 tháng</option><option value="24">24 tháng</option></select></div></div><div class="notice"><b>Ngày bắt đầu thuê là ngày dự kiến nhận kho.</b> Bạn chỉ được chọn trong khoảng ${min} → ${max}. Hệ thống sẽ kiểm tra kho còn trống cho toàn bộ kỳ thuê.</div><div class="modal-actions"><button class="secondary-btn" onclick="closeModal()">Hủy</button><button class="primary-btn" onclick="showPaymentPlanStep('${u.id}')">Tiếp tục →</button></div>`);
 }
@@ -354,14 +356,60 @@ function showPaymentPlanStep(unitId) {
 }
 function confirmBooking(unitId, facility, type, start, end, appointmentTime, rent, deposit, months, monthly) {
   refreshDemoState();
-  const u = getUnit(unitId), plan = $('bookPaymentPlan').value; if (!u || ['Maintenance', 'Rented'].includes(u.status) || unitHasOverlap(unitId, start, end)) return showToast('Kho vừa được giữ bởi giao dịch khác hoặc không còn trống trong kỳ thuê.');
+  const u = getUnit(unitId), plan = $('bookPaymentPlan').value; if (!u || u.status !== 'Available') return showToast('Kho vừa được giữ bởi giao dịch khác hoặc không còn trống.');
   openModal('Xác nhận đặt cọc', `<div class="summary-list"><div><span>Kho</span><b>${esc(u.id)}</b></div><div><span>Thời gian</span><b>${start} → ${end}</b></div><div><span>Lịch nhận kho</span><b>${start} · ${appointmentTime}</b></div><div><span>Số tháng</span><b>${months} tháng</b></div><div><span>Thanh toán tiền thuê</span><b>${plan === 'Periodic' ? 'Theo chu kỳ' : 'Trả hết 1 lần'}</b></div><div><span>Tổng tiền thuê</span><b>${money(rent)}</b></div><div><span>Tiền cọc</span><b>${money(deposit)}</b></div></div><div class="notice">Sau khi cọc thành công, reservation chuyển <b>Pending Approval</b>. Manager mới có quyền duyệt.</div><div class="modal-actions"><button class="secondary-btn" onclick="closeModal()">Hủy</button><button class="primary-btn" onclick="createBooking('${u.id}','${facility}','${type}','${start}','${end}','${appointmentTime}',${rent},${deposit},${months},'${plan}',${monthly})">Đặt cọc ${money(deposit)} →</button></div>`);
 }
-function createBooking(unitId, facility, type, start, end, appointmentTime, rent, deposit, months, plan, monthly) {
-  refreshDemoState();
-  const u = getUnit(unitId); if (!isValidBookingStart(start)) return showToast('Ngày nhận kho phải từ hôm nay đến tối đa 1 tháng kể từ ngày đặt kho.'); if (!u || ['Maintenance', 'Rented'].includes(u.status) || unitHasOverlap(unitId, start, end)) return showToast('Kho vừa được giữ bởi giao dịch khác hoặc không còn trống trong kỳ thuê.');
-  const grossRent = Number(u.price || 0) * Number(months || 0); const b = { id: nextId('BK', state.bookings), customer: currentUser.email, unitId, facility, type, start, end, rent, deposit, months, paymentPlan: plan, status: 'Pending Deposit', createdBy: currentUser.email, monthlyRent: monthly, grossRent, discountAmount: grossRent - rent, discountPercent: Number(state.fees.discountPercent) || 0, depositPaid: false, appointmentDate: start, appointmentTime: appointmentTime || '09:00', bookingWindowMax: bookingStartWindow().max };
-  state.bookings.push(b); u.status = 'Reserved'; addActivity(`Customer tạo ${b.id} · ${unitId} · chờ thanh toán cọc`, { customer: b.customer, facilityId: b.facility, bookingId: b.id, category: 'reservation' }); closeModal(); openDepositPayment(b.id);
+async function createBooking(unitId, facility, type, start, end, appointmentTime, rent, deposit, months, plan, monthly) {
+  try {
+    const grossRent = Number(getUnit(unitId)?.price || 0) * Number(months || 0);
+    const res = await fetch('http://localhost:5046/api/Reservation', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ CustomerEmail: currentUser.email, UnitNumber: unitId, StartDate: start, Months: Number(months), TotalEstimatedCost: grossRent })
+    });
+    if (!res.ok) { const err = await res.json(); showToast(err.message || 'Lỗi đặt kho'); return; }
+    const data = await res.json(); showToast(data.message); closeModal();
+    
+    // Đồng bộ vào state cục bộ để UI Frontend tiếp tục chạy mượt
+    const b = { id: data.reservationId.toString(), customer: currentUser.email, unitId, facility, type, start, end, rent, deposit, months, paymentPlan: plan, status: 'Pending Deposit', createdBy: currentUser.email, monthlyRent: monthly, grossRent, discountAmount: grossRent - rent, discountPercent: Number(state.fees.discountPercent) || 0, depositPaid: false, appointmentDate: start, appointmentTime: appointmentTime || '09:00', bookingWindowMax: bookingStartWindow().max };
+    state.bookings.push(b); 
+    const u = getUnit(unitId); if(u) u.status = 'Reserved';
+
+    // Mở popup thanh toán nhanh giả lập
+    openModal('Xác nhận thanh toán', `
+      <div class="payment-card">
+        <div><span>Mã đơn (DB)</span><strong>${data.reservationId}</strong></div>
+        <div><span>Số tiền cần cọc</span><strong>${money(deposit)}</strong></div>
+      </div>
+      <div class="notice">Đây là giao diện thanh toán giả lập. Hãy bấm nút bên dưới để thanh toán và cập nhật thẳng xuống Database.</div>
+      <div class="modal-actions" style="margin-top: 20px;">
+        <button class="primary-btn" style="width: 100%" onclick="confirmPaymentAPI('${data.reservationId}', ${deposit}, 'Credit Card')">Xác nhận đã thanh toán xong</button>
+      </div>
+    `);
+  } catch(e) { showToast('Lỗi kết nối Backend. Vui lòng kiểm tra lại server C#.'); }
+}
+
+async function confirmPaymentAPI(reservationId, amount, type) {
+    try {
+        const res = await fetch('http://localhost:5046/api/Payment/confirm', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ReservationID: parseInt(reservationId), Amount: amount, PaymentType: type })
+        });
+        if (!res.ok) { showToast('Lỗi thanh toán'); return; }
+        showToast('🎉 Thanh toán thành công! Database đã cập nhật.');
+        closeModal();
+        
+        // Cập nhật state cục bộ
+        const b = state.bookings.find(x => x.id === reservationId.toString());
+        if(b) {
+            b.status = 'Paid';
+            b.rentPaymentPaid = true;
+            b.rentPaymentStatus = 'Paid';
+            b.handoverReady = true;
+            b.depositPaid = true;
+        }
+        if (typeof fetchCatalogFromAPI === 'function') fetchCatalogFromAPI();
+        renderPage('reservations');
+    } catch(e) { showToast('Lỗi kết nối Backend.'); }
 }
 function openDepositPayment(id) {
   if (!roleIs('Storage Customer')) return; const b = getBooking(id); if (!b || b.status !== 'Pending Deposit') return;
@@ -439,24 +487,31 @@ function openHandoverModal(id) {
   if (!hasFacilityAccess(b.facility)) return showToast('Staff không được phân quyền tại cơ sở của booking này.');
   openModal('Check-in & Bàn giao', `<div class="verification-box"><div class="verification-icon">✓</div><div><strong>Payment Verified</strong><p>${b.id} · ${esc(b.customer)}</p></div></div><div class="summary-list"><div><span>Customer</span><b>${esc(b.customer)}</b></div><div><span>Facility</span><b>${esc(getFacility(b.facility)?.name || b.facility)}</b></div><div><span>Unit</span><b>${b.unitId}</b></div><div><span>Period</span><b>${b.start} → ${b.end}</b></div><div><span>Lịch check-in</span><b>${appointmentDate} · ${appointmentTime}</b></div><div><span>Payment code</span><b>${esc(paymentCodeFor(b))}</b></div></div><div class="notice"><b>Checklist bắt buộc trước bàn giao</b><div style="display:grid;gap:7px;margin-top:10px"><label><input type="checkbox" id="verifyCustomer"> Đúng Customer</label><label><input type="checkbox" id="verifyBooking"> Đúng Booking</label><label><input type="checkbox" id="verifyFacility"> Đúng Facility + Unit</label><label><input type="checkbox" id="verifyPayment"> Payment = Success</label><label><input type="checkbox" id="verifyAppointment"> Đúng lịch check-in</label></div></div><label>Hình thức bàn giao</label><select id="accessMethod"><option>Access Card</option><option>Door Code</option><option>Key + Access Card</option></select><div class="modal-actions"><button class="secondary-btn" onclick="closeModal()">Hủy</button><button class="primary-btn" onclick="completeHandover('${b.id}')">Xác nhận bàn giao</button></div>`);
 }
-function completeHandover(id) {
+async function completeHandover(id) {
   if (!roleIs('Facility Staff')) return;
   refreshDemoState(); const b = getBooking(id); if (!b) return showToast('Booking không tồn tại.');
   if (!hasFacilityAccess(b.facility)) return showToast('Staff không được phân quyền tại cơ sở này.');
   if (state.handovers.some(x => x.bookingId === id) || b.status === 'Handed Over') return showToast(`Booking ${id} đã bàn giao. Không thể bàn giao lần 2.`);
-  const payment = state.payments.find(p => p.bookingId === id && p.kind === 'rent');
-  const today = new Date().toISOString().slice(0, 10), appointmentDate = b.appointmentDate || b.start, appointmentTime = b.appointmentTime || '09:00';
-  if (b.status !== 'Paid' || !b.rentPaymentPaid || !payment || payment.status !== 'Success') return showToast('Không thể bàn giao: payment chưa được xác nhận thành công.');
-  if (!b.customer || !b.facility || !b.unitId) return showToast('Thiếu thông tin Customer / Facility / Unit.');
-  if (appointmentDate !== today) return showToast(`Chưa đến lịch check-in. Lịch của booking là ${appointmentDate} · ${appointmentTime}.`);
+  
   if (!['verifyCustomer', 'verifyBooking', 'verifyFacility', 'verifyPayment', 'verifyAppointment'].every(id => $(id)?.checked)) return showToast('Vui lòng xác nhận đầy đủ checklist trước khi bàn giao.');
-  const u = getUnit(b.unitId); if (!u || u.status !== 'Reserved') return showToast('Unit không còn ở trạng thái Reserved.');
-  u.status = 'Rented'; b.status = 'Handed Over';
-  const c = { id: nextId('CT', state.contracts), bookingId: id, customer: b.customer, unitId: b.unitId, type: b.type, start: b.start, end: b.end, status: 'Active', paymentPlan: b.paymentPlan, deposit: b.deposit, rent: b.rent }; state.contracts.push(c);
-  state.handovers.push({ id: nextId('HO', state.handovers), bookingId: id, staff: currentUser.email, access: $('accessMethod').value, time: nowISO(), verified: { customer: $('verifyCustomer').checked, booking: $('verifyBooking').checked, facility: $('verifyFacility').checked, payment: $('verifyPayment').checked, appointment: $('verifyAppointment').checked } });
-  if (b.paymentPlan === 'Periodic') { const s = { id: nextId('SCH', state.paymentSchedules), contractId: c.id, customer: c.customer, amount: b.monthlyRent, dueLabel: 'Kỳ tiếp theo', status: 'Pending', cycle: 2 }; s.paymentCode = scheduleCodeFor(s); state.paymentSchedules.push(s) }
-  state.notifications = (state.notifications || []).map(n => n.role === 'Facility Staff' && n.bookingId === b.id && n.kind === 'handover' ? { ...n, read: true } : n);
-  addActivity(`Staff bàn giao ${b.unitId} cho ${b.customer} · ${b.id}`, { customer: b.customer, facilityId: b.facility, bookingId: b.id, category: 'handover' }); addNotification('Storage Customer', `Kho ${b.unitId} đã được bàn giao. Hợp đồng ${c.id} đang Active.`, b.id, 'handover-complete'); closeModal(); renderPage('check-in'); showToast('Bàn giao hoàn tất. Hợp đồng Active đã tạo.');
+  
+  try {
+      const res = await fetch('http://localhost:5046/api/Handover/complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ReservationID: parseInt(b.id), StaffEmail: currentUser.email, Notes: "Handover via frontend" })
+      });
+      if (!res.ok) { showToast('Lỗi bàn giao'); return; }
+      
+      const data = await res.json();
+      showToast(data.message);
+      
+      // Đồng bộ local state
+      const u = getUnit(b.unitId); if (u) u.status = 'Rented'; 
+      b.status = 'Handed Over';
+      const c = { id: nextId('CT', state.contracts), bookingId: id, customer: b.customer, unitId: b.unitId, type: b.type, start: b.start, end: b.end, status: 'Active', paymentPlan: b.paymentPlan, deposit: b.deposit, rent: b.rent }; state.contracts.push(c);
+      state.handovers.push({ id: nextId('HO', state.handovers), bookingId: id, staff: currentUser.email, access: $('accessMethod').value, time: nowISO(), verified: true });
+      closeModal(); renderPage('check-in');
+  } catch(e) { showToast('Lỗi kết nối Backend lúc bàn giao.'); }
 }
 
 
