@@ -1,3 +1,4 @@
+
 /**
  * ============================================================
  * api.js — Frontend API Service Layer
@@ -49,6 +50,7 @@ export async function fetchCatalog() {
       total: data.units.filter(u => u.facility === f.id).length,
       tags: getFacilityTags(f.name),
       status: f.status,
+      depositPercent: f.depositPercent,
     }))
 
     // Chuyển đổi units → nhóm theo tên facility
@@ -58,8 +60,12 @@ export async function fetchCatalog() {
         .filter(u => u.facility === String(f.id))
         .map(u => ({
           id: u.id,
+          unitId: u.unitId,
           type: u.type,
+          unitTypeId: u.unitTypeId,
           size: u.size,           // UnitSize.Dimensions từ DB, vd: "S1: Locker (<2.5m)"
+          unitSizeId: u.unitSizeId,
+          depositPercent: f.depositPercent,
           price: formatPrice(u.price),
           available: u.status === 'Available',
         }))
@@ -142,10 +148,10 @@ function getFacilityImage(facilityId) {
 
 /** Tag mô tả ngắn cho từng facility */
 function getFacilityTags(name) {
-  if (name.includes('Quận 1'))   return ['Khu trung tâm', 'Dễ tiếp cận']
+  if (name.includes('Quận 1')) return ['Khu trung tâm', 'Dễ tiếp cận']
   if (name.includes('Tân Bình')) return ['Gần sân bay', 'An ninh 24/7']
   if (name.includes('Thủ Đức')) return ['Rộng rãi', 'Có bãi xe']
-  if (name.includes('Quận 2'))   return ['Khu đô thị mới', 'Hiện đại']
-  if (name.includes('Quận 3'))   return ['Trung tâm thành phố', 'Premium']
+  if (name.includes('Quận 2')) return ['Khu đô thị mới', 'Hiện đại']
+  if (name.includes('Quận 3')) return ['Trung tâm thành phố', 'Premium']
   return []
 }

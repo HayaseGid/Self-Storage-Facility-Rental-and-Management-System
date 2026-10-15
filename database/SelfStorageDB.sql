@@ -93,6 +93,17 @@ CREATE TABLE Facility (
 );
 GO
 
+CREATE TABLE RentalPolicy (
+    RentalPolicyID INT IDENTITY(1,1) PRIMARY KEY,
+    FacilityID INT NOT NULL UNIQUE,
+    DepositPercent DECIMAL(5,2) NOT NULL DEFAULT 20.00,
+    CONSTRAINT CK_RentalPolicy_DepositPercent
+        CHECK (DepositPercent >= 0 AND DepositPercent <= 100),
+    CONSTRAINT FK_RentalPolicy_Facility
+        FOREIGN KEY (FacilityID)
+        REFERENCES Facility(FacilityID)
+);
+GO
 
 -- =============================================
 -- 5. FACILITY STAFF
@@ -136,6 +147,25 @@ CREATE TABLE UnitSize (
     UnitSizeID INT IDENTITY(1,1) PRIMARY KEY,
     Dimensions NVARCHAR(50) NOT NULL,
     Volume DECIMAL(10,2)
+);
+GO
+
+CREATE TABLE RentalRate (
+    RentalRateID INT IDENTITY(1,1) PRIMARY KEY,
+    FacilityID INT NOT NULL,
+    UnitTypeID INT NOT NULL,
+    UnitSizeID INT NOT NULL,
+    MonthlyPrice DECIMAL(12,2) NOT NULL,
+    CONSTRAINT UQ_RentalRate_Facility_Type_Size
+        UNIQUE (FacilityID, UnitTypeID, UnitSizeID),
+    CONSTRAINT CK_RentalRate_MonthlyPrice
+        CHECK (MonthlyPrice > 0),
+    CONSTRAINT FK_RentalRate_Facility
+        FOREIGN KEY (FacilityID) REFERENCES Facility(FacilityID),
+    CONSTRAINT FK_RentalRate_UnitType
+        FOREIGN KEY (UnitTypeID) REFERENCES UnitType(UnitTypeID),
+    CONSTRAINT FK_RentalRate_UnitSize
+        FOREIGN KEY (UnitSizeID) REFERENCES UnitSize(UnitSizeID)
 );
 GO
 
@@ -205,6 +235,7 @@ CREATE TABLE Reservation (
     RentalPeriod INT NOT NULL,
     EndDate DATE NOT NULL,
     TotalEstimatedCost DECIMAL(12,2),
+    DepositAmount DECIMAL(12,2) NOT NULL DEFAULT 0,
     Status NVARCHAR(30) NOT NULL,
 
     CONSTRAINT FK_Reservation_Customer
@@ -403,6 +434,10 @@ INSERT INTO Facility (FacilityID, ManagerID, FacilityName, Address, ContactPhone
 SET IDENTITY_INSERT Facility OFF;
 GO
 
+INSERT INTO RentalPolicy (FacilityID, DepositPercent)
+SELECT FacilityID, 20.00 FROM Facility;
+GO
+
 -- 4. FacilityStaff
 SET IDENTITY_INSERT FacilityStaff ON;
 INSERT INTO FacilityStaff (StaffID, FacilityID, UserID, AssignedDate, Status) VALUES
@@ -497,6 +532,12 @@ INSERT INTO StorageUnit (UnitID, FacilityID, UnitTypeID, UnitSizeID, UnitNumber,
 (49, 5, 1, 3, 'Q3-U09', 800000, 'Available'),
 (50, 5, 4, 6, 'Q3-U10', 1300000, 'Available');
 SET IDENTITY_INSERT StorageUnit OFF;
+GO
+
+INSERT INTO RentalRate (FacilityID, UnitTypeID, UnitSizeID, MonthlyPrice)
+SELECT FacilityID, UnitTypeID, UnitSizeID, MAX(BasePrice)
+FROM StorageUnit
+GROUP BY FacilityID, UnitTypeID, UnitSizeID;
 GO
 
 -- 8. ContractType

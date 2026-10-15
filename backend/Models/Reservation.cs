@@ -14,6 +14,7 @@ public class Reservation
     public int RentalPeriod { get; set; }
     public DateTime EndDate { get; set; }
     public decimal? TotalEstimatedCost { get; set; }
+    public decimal DepositAmount { get; set; }
     public string Status { get; set; } = null!;
 
     public User Customer { get; set; } = null!;

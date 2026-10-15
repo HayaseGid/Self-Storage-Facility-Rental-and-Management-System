@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 import "./staffstyles.css";
+import { completeHandover } from "./api/handovers.js";
+import { fetchOperationsState } from "./api/operations.js";
 
 /* =========================================================
    StoreSpace — Facility Staff Portal (demo, frontend only)
@@ -18,7 +20,7 @@ const PENDING_BOOKING_KEY = "storespace_pending_booking"; // App.jsx ghi key nà
 
 /* Tài khoản Facility Staff – khớp Users DB (RoleID=2, FacilityStaff bảng) */
 export const SEED_USERS = [
-  { id: "u-staff-01", fullName: "Lê Nhân Viên Một",   email: "staff1@test.com", password: "123456", role: "FACILITY_STAFF", facilityId: "Cơ sở Lưu trữ Quận 1" },
+  { id: "u-staff-01", fullName: "Lê Nhân Viên Một", email: "staff1@test.com", password: "123456", role: "FACILITY_STAFF", facilityId: "Cơ sở Lưu trữ Quận 1" },
   { id: "u-staff-02", fullName: "Phạm Nhân Viên Hai", email: "staff2@test.com", password: "123456", role: "FACILITY_STAFF", facilityId: "Cơ sở Lưu trữ Quận 1" },
   { id: "u-staff-03", fullName: "Hoàng Nhân Viên Ba", email: "staff3@test.com", password: "123456", role: "FACILITY_STAFF", facilityId: "Cơ sở Lưu trữ Tân Bình" },
 ];
@@ -66,80 +68,80 @@ function buildSeed() {
   const R = (o) => ({ customerPhone: "—", appointmentDate: o.startDate, appointmentTime: "Cả ngày", assignedUnitId: null, contractId: null, paymentTxn: null, source: "demo", ...o });
   // Reservations khớp DB: Reservation #1 (customer1/Q1-U04) và #2 (customer2/TB-U03)
   const reservations = [
-    R({ id: "R-1001", customerName: "Đinh Khách Hàng",  customerEmail: "cust1@test.com",   facilityId: "Cơ sở Lưu trữ Quận 1",  unitId: "Q1-U03", unitType: "Indoor Unit – M1: 2x6m",          startDate: t, months: 3,  appointmentTime: "09:00", deposit: 240000,  rentalFee: 2400000,  paymentStatus: "PAID", paymentTxn: "TXN-84F2A1", status: "CONFIRMED", assignedUnitId: "Q1-U03" }),
-    R({ id: "R-1002", customerName: "Vũ Khách Hàng",    customerEmail: "cust2@test.com",   facilityId: "Cơ sở Lưu trữ Tân Bình", unitId: "TB-U03", unitType: "Basic Unit – M1: 2x6m",          startDate: t, months: 12, appointmentTime: "10:30", deposit: 225000,  rentalFee: 9000000,  paymentStatus: "PENDING_CONFIRMATION", status: "PENDING_CONFIRMATION" }),
-    R({ id: "R-1003", customerName: "Bùi Khách Hàng",   customerEmail: "cust3@test.com",   facilityId: "Cơ sở Lưu trữ Quận 1",  unitId: "Q1-U04", unitType: "Indoor Unit – M2: 4x4m",          startDate: t, months: 3,  appointmentTime: "08:00", deposit: 300000,  rentalFee: 3000000,  paymentStatus: "PAID", paymentTxn: "TXN-19C7DE", status: "HANDED_OVER", assignedUnitId: "Q1-U04", contractId: "C-5001", handedOverBy: "u-staff-01", handedOverAt: new Date().toISOString() }),
-    R({ id: "R-1004", customerName: "Đỗ Khách Hàng",    customerEmail: "cust4@test.com",   facilityId: "Cơ sở Lưu trữ Quận 1",  unitId: "Q1-U01", unitType: "Climate-Control Unit – S1: Locker (<2.5m)", startDate: t, months: 2,  appointmentTime: "14:00", deposit: 90000,   rentalFee:  600000,  paymentStatus: "PAID", paymentTxn: "TXN-5B03C9", status: "PENDING_APPROVAL" }),
-    R({ id: "R-1005", customerName: "Khách Demo 5",     customerEmail: "demo5@test.com",   facilityId: "Cơ sở Lưu trữ Tân Bình", unitId: "TB-U07", unitType: "Drive-up Unit – L3: 4x10m",        startDate: t, months: 4,  appointmentTime: "11:00", deposit: 540000,  rentalFee: 7200000,  paymentStatus: "PAID", paymentTxn: "TXN-7A81F0", status: "CONFIRMED", assignedUnitId: "TB-U07" }),
-    R({ id: "R-1006", customerName: "Khách Demo 6",     customerEmail: "demo6@test.com",   facilityId: "Cơ sở Lưu trữ Quận 1",  unitId: "Q1-U06", unitType: "Basic Unit – S3: 2x4m",           startDate: addDays(t, 30), months: 2, appointmentTime: "15:00", deposit: 180000, rentalFee: 1200000,  paymentStatus: "PAID", paymentTxn: "TXN-C2D6E4", status: "PENDING_APPROVAL" }),
+    R({ id: "R-1001", customerName: "Đinh Khách Hàng", customerEmail: "cust1@test.com", facilityId: "Cơ sở Lưu trữ Quận 1", unitId: "Q1-U03", unitType: "Indoor Unit – M1: 2x6m", startDate: t, months: 3, appointmentTime: "09:00", deposit: 240000, rentalFee: 2400000, paymentStatus: "PAID", paymentTxn: "TXN-84F2A1", status: "CONFIRMED", assignedUnitId: "Q1-U03" }),
+    R({ id: "R-1002", customerName: "Vũ Khách Hàng", customerEmail: "cust2@test.com", facilityId: "Cơ sở Lưu trữ Tân Bình", unitId: "TB-U03", unitType: "Basic Unit – M1: 2x6m", startDate: t, months: 12, appointmentTime: "10:30", deposit: 225000, rentalFee: 9000000, paymentStatus: "PENDING_CONFIRMATION", status: "PENDING_CONFIRMATION" }),
+    R({ id: "R-1003", customerName: "Bùi Khách Hàng", customerEmail: "cust3@test.com", facilityId: "Cơ sở Lưu trữ Quận 1", unitId: "Q1-U04", unitType: "Indoor Unit – M2: 4x4m", startDate: t, months: 3, appointmentTime: "08:00", deposit: 300000, rentalFee: 3000000, paymentStatus: "PAID", paymentTxn: "TXN-19C7DE", status: "HANDED_OVER", assignedUnitId: "Q1-U04", contractId: "C-5001", handedOverBy: "u-staff-01", handedOverAt: new Date().toISOString() }),
+    R({ id: "R-1004", customerName: "Đỗ Khách Hàng", customerEmail: "cust4@test.com", facilityId: "Cơ sở Lưu trữ Quận 1", unitId: "Q1-U01", unitType: "Climate-Control Unit – S1: Locker (<2.5m)", startDate: t, months: 2, appointmentTime: "14:00", deposit: 90000, rentalFee: 600000, paymentStatus: "PAID", paymentTxn: "TXN-5B03C9", status: "PENDING_APPROVAL" }),
+    R({ id: "R-1005", customerName: "Khách Demo 5", customerEmail: "demo5@test.com", facilityId: "Cơ sở Lưu trữ Tân Bình", unitId: "TB-U07", unitType: "Drive-up Unit – L3: 4x10m", startDate: t, months: 4, appointmentTime: "11:00", deposit: 540000, rentalFee: 7200000, paymentStatus: "PAID", paymentTxn: "TXN-7A81F0", status: "CONFIRMED", assignedUnitId: "TB-U07" }),
+    R({ id: "R-1006", customerName: "Khách Demo 6", customerEmail: "demo6@test.com", facilityId: "Cơ sở Lưu trữ Quận 1", unitId: "Q1-U06", unitType: "Basic Unit – S3: 2x4m", startDate: addDays(t, 30), months: 2, appointmentTime: "15:00", deposit: 180000, rentalFee: 1200000, paymentStatus: "PAID", paymentTxn: "TXN-C2D6E4", status: "PENDING_APPROVAL" }),
   ];
   return {
     // Facilities – khớp SelfStorageDB.sql (FacilityID 1-5)
     facilities: [
-      { id: "Cơ sở Lưu trữ Quận 1",   name: "Cơ sở Lưu trữ Quận 1",   address: "123 Lê Lợi, Quận 1, TP.HCM" },
-      { id: "Cơ sở Lưu trữ Tân Bình",  name: "Cơ sở Lưu trữ Tân Bình",  address: "456 Cộng Hòa, Tân Bình, TP.HCM" },
-      { id: "Cơ sở Lưu trữ Thủ Đức",  name: "Cơ sở Lưu trữ Thủ Đức",  address: "123 Võ Văn Ngân, Thủ Đức, TP.HCM" },
-      { id: "Cơ sở Lưu trữ Quận 2",   name: "Cơ sở Lưu trữ Quận 2",   address: "456 Trần Não, Quận 2, TP.HCM" },
-      { id: "Cơ sở Lưu trữ Quận 3",   name: "Cơ sở Lưu trữ Quận 3",   address: "789 Cách Mạng Tháng 8, Quận 3, TP.HCM" },
+      { id: "Cơ sở Lưu trữ Quận 1", name: "Cơ sở Lưu trữ Quận 1", address: "123 Lê Lợi, Quận 1, TP.HCM" },
+      { id: "Cơ sở Lưu trữ Tân Bình", name: "Cơ sở Lưu trữ Tân Bình", address: "456 Cộng Hòa, Tân Bình, TP.HCM" },
+      { id: "Cơ sở Lưu trữ Thủ Đức", name: "Cơ sở Lưu trữ Thủ Đức", address: "123 Võ Văn Ngân, Thủ Đức, TP.HCM" },
+      { id: "Cơ sở Lưu trữ Quận 2", name: "Cơ sở Lưu trữ Quận 2", address: "456 Trần Não, Quận 2, TP.HCM" },
+      { id: "Cơ sở Lưu trữ Quận 3", name: "Cơ sở Lưu trữ Quận 3", address: "789 Cách Mạng Tháng 8, Quận 3, TP.HCM" },
     ],
     // Units – 50 kho, khớp 100% với StorageUnit INSERT trong SelfStorageDB.sql
     // Dimensions là chuỗi mô tả (UnitSize.Dimensions), sizeM2 = diện tích quy đổi để tương thích UI cũ
     units: [
       // Quận 1 (FacilityID=1)
-      U("Q1-U01", "Cơ sở Lưu trữ Quận 1",  "Climate-Control Unit", "S1: Locker (<2.5m)", 300000,  "AVAILABLE"),
-      U("Q1-U02", "Cơ sở Lưu trữ Quận 1",  "Climate-Control Unit", "S2: 2x2m",          500000,  "AVAILABLE"),
-      U("Q1-U03", "Cơ sở Lưu trữ Quận 1",  "Indoor Unit",          "M1: 2x6m",          800000,  "AVAILABLE"),
-      U("Q1-U04", "Cơ sở Lưu trữ Quận 1",  "Indoor Unit",          "M2: 4x4m",          1000000, "RENTED"),
-      U("Q1-U05", "Cơ sở Lưu trữ Quận 1",  "Basic Unit",           "S2: 2x2m",          400000,  "AVAILABLE"),
-      U("Q1-U06", "Cơ sở Lưu trữ Quận 1",  "Basic Unit",           "S3: 2x4m",          600000,  "AVAILABLE"),
-      U("Q1-U07", "Cơ sở Lưu trữ Quận 1",  "Drive-up Unit",        "L3: 4x10m",         2000000, "AVAILABLE"),
-      U("Q1-U08", "Cơ sở Lưu trữ Quận 1",  "Drive-up Unit",        "V1: 8x4m",          2500000, "AVAILABLE"),
-      U("Q1-U09", "Cơ sở Lưu trữ Quận 1",  "Climate-Control Unit", "S3: 2x4m",          700000,  "NEEDS_INSPECTION"),
-      U("Q1-U10", "Cơ sở Lưu trữ Quận 1",  "Indoor Unit",          "L1: 4x6m",          1200000, "AVAILABLE"),
+      U("Q1-U01", "Cơ sở Lưu trữ Quận 1", "Climate-Control Unit", "S1: Locker (<2.5m)", 300000, "AVAILABLE"),
+      U("Q1-U02", "Cơ sở Lưu trữ Quận 1", "Climate-Control Unit", "S2: 2x2m", 500000, "AVAILABLE"),
+      U("Q1-U03", "Cơ sở Lưu trữ Quận 1", "Indoor Unit", "M1: 2x6m", 800000, "AVAILABLE"),
+      U("Q1-U04", "Cơ sở Lưu trữ Quận 1", "Indoor Unit", "M2: 4x4m", 1000000, "RENTED"),
+      U("Q1-U05", "Cơ sở Lưu trữ Quận 1", "Basic Unit", "S2: 2x2m", 400000, "AVAILABLE"),
+      U("Q1-U06", "Cơ sở Lưu trữ Quận 1", "Basic Unit", "S3: 2x4m", 600000, "AVAILABLE"),
+      U("Q1-U07", "Cơ sở Lưu trữ Quận 1", "Drive-up Unit", "L3: 4x10m", 2000000, "AVAILABLE"),
+      U("Q1-U08", "Cơ sở Lưu trữ Quận 1", "Drive-up Unit", "V1: 8x4m", 2500000, "AVAILABLE"),
+      U("Q1-U09", "Cơ sở Lưu trữ Quận 1", "Climate-Control Unit", "S3: 2x4m", 700000, "NEEDS_INSPECTION"),
+      U("Q1-U10", "Cơ sở Lưu trữ Quận 1", "Indoor Unit", "L1: 4x6m", 1200000, "AVAILABLE"),
       // Tân Bình (FacilityID=2)
-      U("TB-U01", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S1: Locker (<2.5m)", 280000,  "AVAILABLE"),
-      U("TB-U02", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S2: 2x2m",          450000,  "AVAILABLE"),
-      U("TB-U03", "Cơ sở Lưu trữ Tân Bình", "Basic Unit",           "M1: 2x6m",          750000,  "RENTED"),
-      U("TB-U04", "Cơ sở Lưu trữ Tân Bình", "Indoor Unit",          "M2: 4x4m",          900000,  "AVAILABLE"),
-      U("TB-U05", "Cơ sở Lưu trữ Tân Bình", "Basic Unit",           "S2: 2x2m",          380000,  "AVAILABLE"),
-      U("TB-U06", "Cơ sở Lưu trữ Tân Bình", "Basic Unit",           "S3: 2x4m",          550000,  "AVAILABLE"),
-      U("TB-U07", "Cơ sở Lưu trữ Tân Bình", "Drive-up Unit",        "L3: 4x10m",         1800000, "AVAILABLE"),
-      U("TB-U08", "Cơ sở Lưu trữ Tân Bình", "Drive-up Unit",        "V1: 8x4m",          2200000, "AVAILABLE"),
-      U("TB-U09", "Cơ sở Lưu trữ Tân Bình", "Indoor Unit",          "L1: 4x6m",          1100000, "AVAILABLE"),
-      U("TB-U10", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S3: 2x4m",          650000,  "AVAILABLE"),
+      U("TB-U01", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S1: Locker (<2.5m)", 280000, "AVAILABLE"),
+      U("TB-U02", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S2: 2x2m", 450000, "AVAILABLE"),
+      U("TB-U03", "Cơ sở Lưu trữ Tân Bình", "Basic Unit", "M1: 2x6m", 750000, "RENTED"),
+      U("TB-U04", "Cơ sở Lưu trữ Tân Bình", "Indoor Unit", "M2: 4x4m", 900000, "AVAILABLE"),
+      U("TB-U05", "Cơ sở Lưu trữ Tân Bình", "Basic Unit", "S2: 2x2m", 380000, "AVAILABLE"),
+      U("TB-U06", "Cơ sở Lưu trữ Tân Bình", "Basic Unit", "S3: 2x4m", 550000, "AVAILABLE"),
+      U("TB-U07", "Cơ sở Lưu trữ Tân Bình", "Drive-up Unit", "L3: 4x10m", 1800000, "AVAILABLE"),
+      U("TB-U08", "Cơ sở Lưu trữ Tân Bình", "Drive-up Unit", "V1: 8x4m", 2200000, "AVAILABLE"),
+      U("TB-U09", "Cơ sở Lưu trữ Tân Bình", "Indoor Unit", "L1: 4x6m", 1100000, "AVAILABLE"),
+      U("TB-U10", "Cơ sở Lưu trữ Tân Bình", "Climate-Control Unit", "S3: 2x4m", 650000, "AVAILABLE"),
       // Thủ Đức (FacilityID=3)
-      U("TD-U01", "Cơ sở Lưu trữ Thủ Đức",  "Climate-Control Unit", "S1: Locker (<2.5m)", 300000,  "AVAILABLE"),
-      U("TD-U02", "Cơ sở Lưu trữ Thủ Đức",  "Climate-Control Unit", "S2: 2x2m",          500000,  "AVAILABLE"),
-      U("TD-U03", "Cơ sở Lưu trữ Thủ Đức",  "Indoor Unit",          "M1: 2x6m",          800000,  "AVAILABLE"),
-      U("TD-U04", "Cơ sở Lưu trữ Thủ Đức",  "Indoor Unit",          "M2: 4x4m",          1000000, "AVAILABLE"),
-      U("TD-U05", "Cơ sở Lưu trữ Thủ Đức",  "Basic Unit",           "S2: 2x2m",          400000,  "AVAILABLE"),
-      U("TD-U06", "Cơ sở Lưu trữ Thủ Đức",  "Basic Unit",           "S3: 2x4m",          600000,  "AVAILABLE"),
-      U("TD-U07", "Cơ sở Lưu trữ Thủ Đức",  "Drive-up Unit",        "L3: 4x10m",         2000000, "AVAILABLE"),
-      U("TD-U08", "Cơ sở Lưu trữ Thủ Đức",  "Drive-up Unit",        "V1: 8x4m",          2500000, "AVAILABLE"),
-      U("TD-U09", "Cơ sở Lưu trữ Thủ Đức",  "Climate-Control Unit", "S3: 2x4m",          700000,  "AVAILABLE"),
-      U("TD-U10", "Cơ sở Lưu trữ Thủ Đức",  "Indoor Unit",          "L1: 4x6m",          1200000, "AVAILABLE"),
+      U("TD-U01", "Cơ sở Lưu trữ Thủ Đức", "Climate-Control Unit", "S1: Locker (<2.5m)", 300000, "AVAILABLE"),
+      U("TD-U02", "Cơ sở Lưu trữ Thủ Đức", "Climate-Control Unit", "S2: 2x2m", 500000, "AVAILABLE"),
+      U("TD-U03", "Cơ sở Lưu trữ Thủ Đức", "Indoor Unit", "M1: 2x6m", 800000, "AVAILABLE"),
+      U("TD-U04", "Cơ sở Lưu trữ Thủ Đức", "Indoor Unit", "M2: 4x4m", 1000000, "AVAILABLE"),
+      U("TD-U05", "Cơ sở Lưu trữ Thủ Đức", "Basic Unit", "S2: 2x2m", 400000, "AVAILABLE"),
+      U("TD-U06", "Cơ sở Lưu trữ Thủ Đức", "Basic Unit", "S3: 2x4m", 600000, "AVAILABLE"),
+      U("TD-U07", "Cơ sở Lưu trữ Thủ Đức", "Drive-up Unit", "L3: 4x10m", 2000000, "AVAILABLE"),
+      U("TD-U08", "Cơ sở Lưu trữ Thủ Đức", "Drive-up Unit", "V1: 8x4m", 2500000, "AVAILABLE"),
+      U("TD-U09", "Cơ sở Lưu trữ Thủ Đức", "Climate-Control Unit", "S3: 2x4m", 700000, "AVAILABLE"),
+      U("TD-U10", "Cơ sở Lưu trữ Thủ Đức", "Indoor Unit", "L1: 4x6m", 1200000, "AVAILABLE"),
       // Quận 2 (FacilityID=4)
-      U("Q2-U01", "Cơ sở Lưu trữ Quận 2",   "Climate-Control Unit", "S1: Locker (<2.5m)", 350000,  "AVAILABLE"),
-      U("Q2-U02", "Cơ sở Lưu trữ Quận 2",   "Climate-Control Unit", "S2: 2x2m",          550000,  "AVAILABLE"),
-      U("Q2-U03", "Cơ sở Lưu trữ Quận 2",   "Indoor Unit",          "M1: 2x6m",          850000,  "AVAILABLE"),
-      U("Q2-U04", "Cơ sở Lưu trữ Quận 2",   "Indoor Unit",          "M2: 4x4m",          1050000, "AVAILABLE"),
-      U("Q2-U05", "Cơ sở Lưu trữ Quận 2",   "Basic Unit",           "S2: 2x2m",          450000,  "AVAILABLE"),
-      U("Q2-U06", "Cơ sở Lưu trữ Quận 2",   "Basic Unit",           "S3: 2x4m",          650000,  "AVAILABLE"),
-      U("Q2-U07", "Cơ sở Lưu trữ Quận 2",   "Drive-up Unit",        "L3: 4x10m",         2100000, "AVAILABLE"),
-      U("Q2-U08", "Cơ sở Lưu trữ Quận 2",   "Drive-up Unit",        "V1: 8x4m",          2600000, "AVAILABLE"),
-      U("Q2-U09", "Cơ sở Lưu trữ Quận 2",   "Climate-Control Unit", "S3: 2x4m",          750000,  "AVAILABLE"),
-      U("Q2-U10", "Cơ sở Lưu trữ Quận 2",   "Indoor Unit",          "L1: 4x6m",          1250000, "AVAILABLE"),
+      U("Q2-U01", "Cơ sở Lưu trữ Quận 2", "Climate-Control Unit", "S1: Locker (<2.5m)", 350000, "AVAILABLE"),
+      U("Q2-U02", "Cơ sở Lưu trữ Quận 2", "Climate-Control Unit", "S2: 2x2m", 550000, "AVAILABLE"),
+      U("Q2-U03", "Cơ sở Lưu trữ Quận 2", "Indoor Unit", "M1: 2x6m", 850000, "AVAILABLE"),
+      U("Q2-U04", "Cơ sở Lưu trữ Quận 2", "Indoor Unit", "M2: 4x4m", 1050000, "AVAILABLE"),
+      U("Q2-U05", "Cơ sở Lưu trữ Quận 2", "Basic Unit", "S2: 2x2m", 450000, "AVAILABLE"),
+      U("Q2-U06", "Cơ sở Lưu trữ Quận 2", "Basic Unit", "S3: 2x4m", 650000, "AVAILABLE"),
+      U("Q2-U07", "Cơ sở Lưu trữ Quận 2", "Drive-up Unit", "L3: 4x10m", 2100000, "AVAILABLE"),
+      U("Q2-U08", "Cơ sở Lưu trữ Quận 2", "Drive-up Unit", "V1: 8x4m", 2600000, "AVAILABLE"),
+      U("Q2-U09", "Cơ sở Lưu trữ Quận 2", "Climate-Control Unit", "S3: 2x4m", 750000, "AVAILABLE"),
+      U("Q2-U10", "Cơ sở Lưu trữ Quận 2", "Indoor Unit", "L1: 4x6m", 1250000, "AVAILABLE"),
       // Quận 3 (FacilityID=5)
-      U("Q3-U01", "Cơ sở Lưu trữ Quận 3",   "Climate-Control Unit", "S1: Locker (<2.5m)", 400000,  "AVAILABLE"),
-      U("Q3-U02", "Cơ sở Lưu trữ Quận 3",   "Climate-Control Unit", "S2: 2x2m",          600000,  "AVAILABLE"),
-      U("Q3-U03", "Cơ sở Lưu trữ Quận 3",   "Indoor Unit",          "M1: 2x6m",          900000,  "AVAILABLE"),
-      U("Q3-U04", "Cơ sở Lưu trữ Quận 3",   "Indoor Unit",          "M2: 4x4m",          1100000, "AVAILABLE"),
-      U("Q3-U05", "Cơ sở Lưu trữ Quận 3",   "Basic Unit",           "S2: 2x2m",          500000,  "AVAILABLE"),
-      U("Q3-U06", "Cơ sở Lưu trữ Quận 3",   "Basic Unit",           "S3: 2x4m",          700000,  "AVAILABLE"),
-      U("Q3-U07", "Cơ sở Lưu trữ Quận 3",   "Drive-up Unit",        "L3: 4x10m",         2200000, "AVAILABLE"),
-      U("Q3-U08", "Cơ sở Lưu trữ Quận 3",   "Drive-up Unit",        "V1: 8x4m",          2700000, "AVAILABLE"),
-      U("Q3-U09", "Cơ sở Lưu trữ Quận 3",   "Climate-Control Unit", "S3: 2x4m",          800000,  "AVAILABLE"),
-      U("Q3-U10", "Cơ sở Lưu trữ Quận 3",   "Indoor Unit",          "L1: 4x6m",          1300000, "AVAILABLE"),
+      U("Q3-U01", "Cơ sở Lưu trữ Quận 3", "Climate-Control Unit", "S1: Locker (<2.5m)", 400000, "AVAILABLE"),
+      U("Q3-U02", "Cơ sở Lưu trữ Quận 3", "Climate-Control Unit", "S2: 2x2m", 600000, "AVAILABLE"),
+      U("Q3-U03", "Cơ sở Lưu trữ Quận 3", "Indoor Unit", "M1: 2x6m", 900000, "AVAILABLE"),
+      U("Q3-U04", "Cơ sở Lưu trữ Quận 3", "Indoor Unit", "M2: 4x4m", 1100000, "AVAILABLE"),
+      U("Q3-U05", "Cơ sở Lưu trữ Quận 3", "Basic Unit", "S2: 2x2m", 500000, "AVAILABLE"),
+      U("Q3-U06", "Cơ sở Lưu trữ Quận 3", "Basic Unit", "S3: 2x4m", 700000, "AVAILABLE"),
+      U("Q3-U07", "Cơ sở Lưu trữ Quận 3", "Drive-up Unit", "L3: 4x10m", 2200000, "AVAILABLE"),
+      U("Q3-U08", "Cơ sở Lưu trữ Quận 3", "Drive-up Unit", "V1: 8x4m", 2700000, "AVAILABLE"),
+      U("Q3-U09", "Cơ sở Lưu trữ Quận 3", "Climate-Control Unit", "S3: 2x4m", 800000, "AVAILABLE"),
+      U("Q3-U10", "Cơ sở Lưu trữ Quận 3", "Indoor Unit", "L1: 4x6m", 1300000, "AVAILABLE"),
     ],
     reservations,
     payments: reservations.filter((r) => r.paymentTxn).map((r) => ({ txn: r.paymentTxn, resId: r.id })),
@@ -197,6 +199,29 @@ function loadDb() {
 }
 const saveDb = (db) => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch { /* ignore */ } };
 const syncState = (prev) => { const next = syncLive(prev); if (next !== prev) saveDb(next); return next; };
+
+function mapOperationsState(state) {
+  const isoDate = value => value ? String(value).slice(0, 10) : "";
+  return {
+    ...state,
+    units: (state.units || []).map(unit => {
+      const dimensions = String(unit.size || "");
+      const match = dimensions.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      const area = match ? Number(match[1]) * Number(match[2]) : Number.parseFloat(dimensions) || 0;
+      return { ...unit, sizeM2: unit.sizeM2 ?? area };
+    }),
+    reservations: (state.reservations || []).map(reservation => ({
+      ...reservation,
+      startDate: isoDate(reservation.startDate),
+      appointmentDate: isoDate(reservation.appointmentDate),
+    })),
+    contracts: (state.contracts || []).map(contract => ({
+      ...contract,
+      startDate: isoDate(contract.startDate),
+      endDate: isoDate(contract.endDate),
+    })),
+  };
+}
 
 /* ---------- business rules ---------- */
 const HOLDING = ["CONFIRMED", "HANDED_OVER"];
@@ -331,7 +356,7 @@ function LoginView({ onLogin }) {
   };
 
   return (
-    <AuthFrame title="Đăng nhập nhân viên" subtitle="Tài khoản do quản trị viên cấp. Khách hàng đăng nhập ở trang chủ." onBrand={() => {}}>
+    <AuthFrame title="Đăng nhập nhân viên" subtitle="Tài khoản do quản trị viên cấp. Khách hàng đăng nhập ở trang chủ." onBrand={() => { }}>
       <form className="auth-form" onSubmit={submit}>
         {error && <div className="auth-message error">{error}</div>}
         <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff1@storespace.vn" autoComplete="username" required /></label>
@@ -365,7 +390,19 @@ function ReservationDetail({ res, unit, staff, db, actions }) {
   const handedOver = res.status === "HANDED_OVER";
   const notToday = res.appointmentDate !== todayStr();
   const ready = canHandover && idChecked && accessValue.trim().length > 0;
-  const doHandoverClick = () => setResult(actions.handover(res.id, { type: accessType, value: accessValue }));
+  const [busy, setBusy] = useState(false);
+  const doHandoverClick = async () => {
+    setBusy(true);
+    try {
+      const response = await actions.handover(res.id, { type: accessType, value: accessValue });
+      setResult(response);
+      if (response.ok) await actions.refresh();
+    } catch (error) {
+      setResult({ ok: false, message: error.message || "Không thể ghi nhận bàn giao." });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="st-card st-detail">
@@ -399,18 +436,10 @@ function ReservationDetail({ res, unit, staff, db, actions }) {
       {handedOver ? (
         <>
           <div className="st-alert st-ok">Đã bàn giao{res.contractId ? ` — hợp đồng ${res.contractId}` : ""}.</div>
-          <button className="dashboard-secondary-btn" type="button" onClick={doHandoverClick}>Thử bàn giao lại</button>
         </>
       ) : (
         <>
-          <div className="st-demo">
-            <strong>Giả lập bước của hệ thống / Manager (demo)</strong>
-            <p>Chưa có cổng thanh toán thật và giao diện Manager, dùng 2 nút này để đi hết happy case. Bấm nút thứ nhất nhiều lần để thử thông báo thanh toán lặp.</p>
-            <div className="st-actions">
-              <button className="dashboard-secondary-btn" type="button" disabled={!["PENDING_CONFIRMATION", "PAID"].includes(res.paymentStatus)} onClick={() => setResult(actions.confirmPayment(res.id))}>Cổng thanh toán báo thành công</button>
-              <button className="dashboard-secondary-btn" type="button" disabled={!(res.paymentStatus === "PAID" && res.status === "PENDING_APPROVAL")} onClick={() => setResult(actions.approve(res.id))}>Manager duyệt và phân kho</button>
-            </div>
-          </div>
+          <div className="st-alert st-info">Thanh toán được ghi nhận từ tài khoản khách hàng; việc phân kho do Facility Manager thực hiện.</div>
 
           <h3>Kiểm tra trước khi bàn giao</h3>
           <ul className="st-checks">
@@ -436,7 +465,9 @@ function ReservationDetail({ res, unit, staff, db, actions }) {
               <input className="st-input" value={accessValue} onChange={(e) => setAccessValue(e.target.value)} placeholder="VD: KEY-0301" />
             </label>
           </div>
-          <button className="dashboard-primary-btn" type="button" disabled={!ready} onClick={doHandoverClick}>Xác nhận bàn giao</button>
+          <button className="dashboard-primary-btn" type="button" disabled={!ready || busy} onClick={doHandoverClick}>
+            {busy ? "Đang ghi nhận..." : "Xác nhận bàn giao"}
+          </button>
           {!ready && <p className="st-hint">Cần đủ điều kiện, tick đối chiếu giấy tờ và nhập thông tin truy cập.</p>}
         </>
       )}
@@ -487,7 +518,7 @@ const NAV = [
   ["log", "◫", "Nhật ký bàn giao"],
 ];
 
-function Portal({ staff, db, setDb, onLogout, onReset, onRefresh }) {
+function Portal({ staff, db, setDb, onLogout, onReset, onRefresh, apiError = "" }) {
   const [section, setSection] = useState("overview");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
@@ -515,15 +546,15 @@ function Portal({ staff, db, setDb, onLogout, onReset, onRefresh }) {
   const freeUnits = units.filter((u) => u.status === "AVAILABLE").length;
   const selected = mine.find((r) => r.id === selectedId) || null;
 
-  const run = (fn, ...args) => {
-    const result = fn(db, ...args);
-    if (result.ok) setDb(result.db);
-    return result;
-  };
   const actions = {
-    handover: (id, access) => run(doHandover, id, staff, access),
-    confirmPayment: (id) => run(confirmPayment, id),
-    approve: (id) => run(approveAndAssign, id),
+    handover: (id, access) => completeHandover({
+      reservationId: Number(id),
+      staffEmail: staff.email,
+      accessType: access.type,
+      accessValue: access.value,
+      notes: "",
+    }),
+    refresh: onRefresh,
   };
   const open = (id) => { setSelectedId(id); setSection("today"); };
 
@@ -559,12 +590,13 @@ function Portal({ staff, db, setDb, onLogout, onReset, onRefresh }) {
 
         <div className="customer-sidebar-bottom">
           <button type="button" onClick={onRefresh}><span>↻</span>Làm mới đặt chỗ</button>
-          <button type="button" onClick={onReset}><span>⟲</span>Đặt lại dữ liệu demo</button>
+          {onReset && <button type="button" onClick={onReset}><span>⟲</span>Đặt lại dữ liệu demo</button>}
           <button type="button" onClick={onLogout}><span>↪</span>Đăng xuất</button>
         </div>
       </aside>
 
       <main className="customer-main">
+        {apiError && <div className="st-alert st-warn" role="alert">{apiError}</div>}
         <div className="customer-topbar">
           <div>
             <span className="customer-eyebrow">{HEAD[0]}</span>
@@ -648,6 +680,7 @@ function Portal({ staff, db, setDb, onLogout, onReset, onRefresh }) {
 */
 export default function StaffPortal({ embedded = false, currentUser = null, navigate = null, currentUserKey = "storespace_current_user" } = {}) {
   const [db, setDbState] = useState(loadDb);
+  const [apiError, setApiError] = useState("");
   const [ownStaff, setOwnStaff] = useState(() => {
     try {
       const id = localStorage.getItem(SESSION_KEY);
@@ -655,17 +688,46 @@ export default function StaffPortal({ embedded = false, currentUser = null, navi
     } catch { return null; }
   });
 
+  const assignedStaff = embedded && currentUser?.email
+    ? db.staff?.find((item) =>
+      item.email.toLowerCase() === currentUser.email.toLowerCase() &&
+      item.status === "Active"
+    )
+    : null;
   const staff = embedded
-    ? SEED_USERS.find((u) => currentUser && currentUser.role === "FACILITY_STAFF" && u.email.toLowerCase() === String(currentUser.email).toLowerCase()) || null
+    ? assignedStaff
+      ? {
+        ...(SEED_USERS.find((u) => u.email.toLowerCase() === currentUser.email.toLowerCase()) || {}),
+        fullName: assignedStaff.fullName || currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role,
+        facilityId: assignedStaff.facilityId
+      }
+      : null
     : ownStaff;
 
-  // Tự lấy đặt kho mới của khách khi quay lại tab này
+  const refresh = async () => {
+    if (!embedded || !currentUser?.email) {
+      setDbState(syncState);
+      return;
+    }
+    try {
+      const state = await fetchOperationsState(currentUser.email);
+      setDbState(mapOperationsState(state));
+      setApiError("");
+    } catch (error) {
+      console.error("[API] Staff state refresh failed:", error);
+      setApiError(error.message || "Không thể tải dữ liệu vận hành từ máy chủ.");
+    }
+  };
+
   useEffect(() => {
-    const refresh = () => setDbState(syncState);
-    window.addEventListener("focus", refresh);
-    window.addEventListener("storage", refresh);
-    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("storage", refresh); };
-  }, []);
+    const handleRefresh = () => { void refresh(); };
+    void refresh();
+    window.addEventListener("focus", handleRefresh);
+    window.addEventListener("storage", handleRefresh);
+    return () => { window.removeEventListener("focus", handleRefresh); window.removeEventListener("storage", handleRefresh); };
+  }, [embedded, currentUser?.email]);
 
   const setDb = (next) => { setDbState(next); saveDb(next); };
   const login = (u) => { try { localStorage.setItem(SESSION_KEY, u.id); } catch { /* ignore */ } setOwnStaff(u); };
@@ -679,12 +741,11 @@ export default function StaffPortal({ embedded = false, currentUser = null, navi
     setOwnStaff(null);
   };
   const reset = () => setDb(syncLive(buildSeed()));
-  const refresh = () => setDbState(syncState);
 
   return (
     <div className="st-root">
       {staff ? (
-        <Portal staff={staff} db={db} setDb={setDb} onLogout={logout} onReset={reset} onRefresh={refresh} />
+        <Portal staff={staff} db={db} setDb={setDb} onLogout={logout} onReset={embedded ? null : reset} onRefresh={refresh} apiError={apiError} />
       ) : embedded ? (
         <NoAccess navigate={navigate} />
       ) : (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import './styles.css'
 import './fmanagerstyles.css'
+import { assignFacilityStaff, assignReservation, createStorageUnit, fetchOperationsState, updateStorageUnit } from './api/operations.js'
 
 /* =========================================================
    StoreSpace — Facility Manager Portal (Frontend Only Demo)
@@ -118,6 +119,21 @@ function saveDb(db) {
   } catch (e) {
     console.error(e)
   }
+
+  function mapOperationsState(state) {
+    return {
+      ...state,
+      units: (state.units || []).map(unit => {
+        const dimensions = String(unit.size || '')
+        const areaMatch = dimensions.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i)
+        const calculatedArea = areaMatch
+          ? Number(areaMatch[1]) * Number(areaMatch[2])
+          : Number.parseFloat(dimensions) || 0
+        return { ...unit, sizeM2: unit.sizeM2 ?? calculatedArea }
+      }),
+      activity: [],
+    }
+  }
 }
 
 /* Badge Component */
@@ -127,22 +143,48 @@ function Badge({ map, value }) {
 }
 
 /* Modal Tạo/Chỉnh Sửa Kho */
-function UnitFormModal({ facilityId, editingUnit, onClose, onSave }) {
+function UnitFormModal({
+  facilityId,
+  facilityDbId,
+  editingUnit,
+  unitTypes = [],
+  unitSizes = [],
+  rentalRates = [],
+  onClose,
+  onSave
+}) {
   const [id, setId] = useState(editingUnit ? editingUnit.id : '')
   const [type, setType] = useState(editingUnit ? editingUnit.type : 'Kho tiêu chuẩn')
   const [sizeM2, setSizeM2] = useState(editingUnit ? editingUnit.sizeM2 : 3)
+  const [unitTypeId, setUnitTypeId] = useState(editingUnit?.unitTypeId ?? unitTypes[0]?.unitTypeId ?? '')
+  const [unitSizeId, setUnitSizeId] = useState(editingUnit?.sizeId ?? unitSizes[0]?.unitSizeId ?? '')
+  const [size, setSize] = useState(editingUnit?.size ?? '')
   const [pricePerMonth, setPricePerMonth] = useState(editingUnit ? editingUnit.pricePerMonth : 650000)
   const [status, setStatus] = useState(editingUnit ? editingUnit.status : 'AVAILABLE')
   const [error, setError] = useState('')
+  const configuredRate = rentalRates.find(rate =>
+    rate.facilityId === facilityDbId &&
+    rate.unitTypeId === Number(unitTypeId) &&
+    rate.unitSizeId === Number(unitSizeId)
+  )
+
+  useEffect(() => {
+    if (configuredRate) setPricePerMonth(configuredRate.price)
+  }, [configuredRate?.price])
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!id.trim()) return setError('Vui lòng nhập Mã kho (VD: CD-103)')
+    const selectedType = unitTypes.find(item => item.unitTypeId === Number(unitTypeId))
+    const selectedSize = unitSizes.find(item => item.unitSizeId === Number(unitSizeId))
     onSave({
       id: id.trim().toUpperCase(),
       facilityId,
-      type,
-      sizeM2: Number(sizeM2),
+      type: selectedType?.name ?? type,
+      unitTypeId: selectedType?.unitTypeId ?? null,
+      size: selectedSize?.dimensions ?? (size || `${sizeM2} m²`),
+      unitSizeId: selectedSize?.unitSizeId ?? null,
+      sizeM2: Number(selectedSize?.volume ?? sizeM2),
       pricePerMonth: Number(pricePerMonth),
       status
     })
@@ -172,23 +214,46 @@ function UnitFormModal({ facilityId, editingUnit, onClose, onSave }) {
           <div className="fm-form-row">
             <label>
               Loại kho
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="Kho tiêu chuẩn">Kho tiêu chuẩn</option>
-                <option value="Kho mát / Cool">Kho mát / Cool</option>
-
-                <option value="Kho lớn">Kho lớn</option>
-              </select>
+              {unitTypes.length ? (
+                <select
+                  value={unitTypeId}
+                  onChange={(e) => setUnitTypeId(Number(e.target.value))}
+                  required
+                >
+                  {unitTypes.map(item => (
+                    <option key={item.unitTypeId} value={item.unitTypeId}>{item.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <select value={type} onChange={(e) => setType(e.target.value)}>
+                  <option value="Kho tiêu chuẩn">Kho tiêu chuẩn</option>
+                  <option value="Kho mát / Cool">Kho mát / Cool</option>
+                  <option value="Kho lớn">Kho lớn</option>
+                </select>
+              )}
             </label>
 
             <label>
-              Diện tích (m²)
-              <input
-                type="number"
-                min="1"
-                value={sizeM2}
-                onChange={(e) => setSizeM2(e.target.value)}
-                required
-              />
+              Kích thước kho
+              {unitSizes.length ? (
+                <select
+                  value={unitSizeId}
+                  onChange={(e) => setUnitSizeId(Number(e.target.value))}
+                  required
+                >
+                  {unitSizes.map(item => (
+                    <option key={item.unitSizeId} value={item.unitSizeId}>{item.dimensions}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="number"
+                  min="1"
+                  value={sizeM2}
+                  onChange={(e) => setSizeM2(e.target.value)}
+                  required
+                />
+              )}
             </label>
           </div>
 
@@ -236,11 +301,19 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
   const [showUnitModal, setShowUnitModal] = useState(false)
   const [selectedResId, setSelectedResId] = useState(null)
   const [selectedUnitForAssign, setSelectedUnitForAssign] = useState('')
+  const [apiError, setApiError] = useState('')
+  const [selectedStaffEmail, setSelectedStaffEmail] = useState('')
 
   // Manager Session
   const manager = useMemo(() => {
     if (embedded && currentUser && currentUser.role === 'FACILITY_MANAGER') {
-      return MANAGER_ACCOUNTS.find(m => m.email.toLowerCase() === currentUser.email.toLowerCase()) || MANAGER_ACCOUNTS[0]
+      return MANAGER_ACCOUNTS.find(m => m.email.toLowerCase() === currentUser.email.toLowerCase()) || {
+        id: currentUser.email,
+        fullName: currentUser.name || currentUser.email,
+        email: currentUser.email,
+        role: currentUser.role,
+        facilityId: ''
+      }
     }
     try {
       const savedId = localStorage.getItem(SESSION_KEY)
@@ -250,18 +323,30 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
     }
   }, [embedded, currentUser])
 
-  // Reload DB khi focus tab
-  useEffect(() => {
-    const handleSync = () => setDb(loadDb())
-    window.addEventListener('focus', handleSync)
-    window.addEventListener('storage', handleSync)
-    return () => {
-      window.removeEventListener('focus', handleSync)
-      window.removeEventListener('storage', handleSync)
+  const refreshFromServer = async () => {
+    if (!embedded || !manager?.email) return
+    try {
+      const state = await fetchOperationsState(manager.email)
+      setDb(mapOperationsState(state))
+      setApiError('')
+    } catch (error) {
+      console.error('[API] Manager state refresh failed:', error)
+      setApiError(error.message || 'Không thể tải dữ liệu vận hành từ máy chủ.')
     }
-  }, [])
+  }
 
-  const facilityName = manager.facilityId
+  useEffect(() => {
+    const handleRefresh = () => { void refreshFromServer() }
+    void refreshFromServer()
+    window.addEventListener('focus', handleRefresh)
+    window.addEventListener('storage', handleRefresh)
+    return () => {
+      window.removeEventListener('focus', handleRefresh)
+      window.removeEventListener('storage', handleRefresh)
+    }
+  }, [embedded, manager?.email])
+
+  const facilityName = db.facilities.find(f => f.managerEmail?.toLowerCase() === manager.email.toLowerCase())?.name || manager.facilityId
 
   /* Dữ liệu đã lọc theo Cơ sở của Manager */
   const facilityUnits = useMemo(() => db.units.filter(u => u.facilityId === facilityName), [db, facilityName])
@@ -307,10 +392,23 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
   }
 
   /* 1. Hành động: Xét duyệt & Phân kho cụ thể */
-  const handleApproveAndAssign = (resId, unitId) => {
+  const handleApproveAndAssign = async (resId, unitId) => {
     if (!unitId) return alert('Vui lòng chọn một kho trống để phân bổ!')
     const res = db.reservations.find(r => r.id === resId)
     if (!res) return
+
+    if (embedded) {
+      try {
+        await assignReservation(resId, unitId)
+        await refreshFromServer()
+        setSelectedResId(null)
+        setSelectedUnitForAssign('')
+        alert(`Đã duyệt đơn ${res.id} và phân bổ kho ${unitId} thành công!`)
+      } catch (error) {
+        setApiError(error.message || 'Không thể phân kho cho đặt chỗ.')
+      }
+      return
+    }
 
     const nextReservations = db.reservations.map(r => r.id === resId ? { ...r, status: 'CONFIRMED', assignedUnitId: unitId } : r)
     const nextUnits = db.units.map(u => u.id === unitId ? { ...u, status: 'RESERVED' } : u)
@@ -325,7 +423,57 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
   }
 
   /* 2. Hành động: Thêm/Sửa thông tin kho */
-  const handleSaveUnit = (unitData) => {
+  const handleSaveUnit = async (unitData) => {
+    if (embedded) {
+      const facility = db.facilities.find(f => f.id === facilityName)
+      if (!facility?.facilityDbId) {
+        setApiError('Không xác định được mã cơ sở trong cơ sở dữ liệu.')
+        return
+      }
+
+      const handleAssignStaff = async () => {
+        const facility = db.facilities.find(f => f.id === facilityName)
+        if (!facility?.facilityDbId || !selectedStaffEmail) {
+          setApiError('Chọn nhân viên và cơ sở hợp lệ trước khi phân công.')
+          return
+        }
+        try {
+          await assignFacilityStaff(facility.facilityDbId, selectedStaffEmail)
+          await refreshFromServer()
+          setSelectedStaffEmail('')
+        } catch (error) {
+          setApiError(error.message || 'Không thể phân công nhân viên.')
+        }
+      }
+      const typeName = unitData.type.includes('mát') || unitData.type.toLowerCase().includes('cool')
+        ? 'Climate-Control Unit'
+        : unitData.type.includes('lớn')
+          ? 'Drive-up Unit'
+          : 'Basic Unit'
+      const request = {
+        FacilityID: facility.facilityDbId,
+        UnitNumber: unitData.id,
+        UnitTypeID: unitData.unitTypeId,
+        UnitSizeID: unitData.unitSizeId,
+        UnitType: unitData.type || typeName,
+        Size: unitData.size,
+        SizeM2: unitData.sizeM2,
+        BasePrice: unitData.pricePerMonth,
+        Status: unitData.status,
+      }
+      try {
+        const existing = db.units.some(u => u.id === unitData.id)
+        if (existing) await updateStorageUnit(request)
+        else await createStorageUnit(request)
+        await refreshFromServer()
+        setShowUnitModal(false)
+        setEditingUnit(null)
+      } catch (error) {
+        setApiError(error.message || 'Không thể lưu thông tin kho.')
+      }
+      return
+    }
+
     const existingIndex = db.units.findIndex(u => u.id === unitData.id)
     let nextUnits = [...db.units]
     if (existingIndex >= 0) {
@@ -353,7 +501,8 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
   }
 
   const pendingList = facilityReservations.filter(r => r.status === 'PENDING_APPROVAL')
-  const staffList = STAFF_LIST_BY_FACILITY[facilityName] || []
+  const staffList = db.staff?.filter(s => s.facilityId === facilityName)
+    .map(s => ({ id: s.id, name: s.fullName, email: s.email })) || STAFF_LIST_BY_FACILITY[facilityName] || []
 
   return (
     <div className="customer-layout fm-root">
@@ -417,6 +566,7 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
             </h1>
             <p>Quản lý vận hành, xét duyệt đặt kho và giám sát doanh thu cơ sở {facilityName}.</p>
           </div>
+          {apiError && <div className="auth-message error" role="alert">{apiError}</div>}
           <div className="fm-facility-chip">
             📍 <strong>{facilityName}</strong>
           </div>
@@ -699,6 +849,30 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
               <p>Danh sách nhân viên vận hành phụ trách kiểm tra kho và hỗ trợ check-in bàn giao cho khách.</p>
             </div>
 
+            {embedded && (
+              <div className="fm-assign-box">
+                <label htmlFor="manager-staff-assignment"><strong>Phân công Facility Staff</strong></label>
+                <div className="fm-form-row">
+                  <select
+                    id="manager-staff-assignment"
+                    className="fm-input"
+                    value={selectedStaffEmail}
+                    onChange={event => setSelectedStaffEmail(event.target.value)}
+                  >
+                    <option value="">Chọn nhân viên</option>
+                    {(db.staffUsers || []).map(candidate => (
+                      <option key={candidate.userId} value={candidate.email}>
+                        {candidate.fullName} · {candidate.email}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="dashboard-primary-btn" type="button" onClick={handleAssignStaff}>
+                    Lưu phân công
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="fm-staff-grid">
               {staffList.map(st => (
                 <div key={st.id} className="fm-staff-card">
@@ -723,7 +897,11 @@ export default function FacilityManagerDashboard({ embedded = false, currentUser
       {showUnitModal && (
         <UnitFormModal
           facilityId={facilityName}
+          facilityDbId={db.facilities.find(f => f.id === facilityName)?.facilityDbId}
           editingUnit={editingUnit}
+          unitTypes={db.unitTypes || []}
+          unitSizes={db.unitSizes || []}
+          rentalRates={db.rentalRates || []}
           onClose={() => setShowUnitModal(false)}
           onSave={handleSaveUnit}
         />

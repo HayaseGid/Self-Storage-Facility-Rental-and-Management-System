@@ -23,6 +23,8 @@ public class SelfStorageDbContext : DbContext
     public DbSet<Payment> Payments { get; set; } = null!;
     public DbSet<UnitAccess> UnitAccesses { get; set; } = null!;
     public DbSet<HandoverTask> HandoverTasks { get; set; } = null!;
+    public DbSet<RentalPolicy> RentalPolicies { get; set; } = null!;
+    public DbSet<RentalRate> RentalRates { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +45,8 @@ public class SelfStorageDbContext : DbContext
         modelBuilder.Entity<Payment>().ToTable("Payment");
         modelBuilder.Entity<UnitAccess>().ToTable("UnitAccess");
         modelBuilder.Entity<HandoverTask>().ToTable("HandoverTask");
+        modelBuilder.Entity<RentalPolicy>().ToTable("RentalPolicy");
+        modelBuilder.Entity<RentalRate>().ToTable("RentalRate");
 
         // Users -> Role
         modelBuilder.Entity<User>()
@@ -63,6 +67,33 @@ public class SelfStorageDbContext : DbContext
             .HasOne(f => f.Manager)
             .WithMany(u => u.ManagedFacilities)
             .HasForeignKey(f => f.ManagerID)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<RentalPolicy>()
+            .HasIndex(p => p.FacilityID)
+            .IsUnique();
+        modelBuilder.Entity<RentalPolicy>()
+            .HasOne(p => p.Facility)
+            .WithMany()
+            .HasForeignKey(p => p.FacilityID)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<RentalRate>()
+            .HasIndex(r => new { r.FacilityID, r.UnitTypeID, r.UnitSizeID })
+            .IsUnique();
+        modelBuilder.Entity<RentalRate>()
+            .HasOne(r => r.Facility)
+            .WithMany()
+            .HasForeignKey(r => r.FacilityID)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<RentalRate>()
+            .HasOne(r => r.UnitType)
+            .WithMany()
+            .HasForeignKey(r => r.UnitTypeID)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<RentalRate>()
+            .HasOne(r => r.UnitSize)
+            .WithMany()
+            .HasForeignKey(r => r.UnitSizeID)
             .OnDelete(DeleteBehavior.Restrict);
 
         // FacilityStaff -> Facility, Users

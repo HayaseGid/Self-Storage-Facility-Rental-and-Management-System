@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using SelfStorageAPI.Data;
 using SelfStorageAPI.DTOs;
 using SelfStorageAPI.Models;
+using SelfStorageAPI.Constants;
+using System.Data;
 
 namespace SelfStorageAPI.Controllers
 {
@@ -18,32 +20,49 @@ namespace SelfStorageAPI.Controllers
         }
 
         [HttpPost("confirm")]
-        public async Task<IActionResult> ConfirmPayment([FromBody] CreatePaymentDTO request)
+        public async Task<IActionResult> ConfirmPayment(
+            [FromBody] CreatePaymentDTO request,
+            CancellationToken cancellationToken)
         {
+            await using var transaction = await _context.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable, cancellationToken);
             var reservation = await _context.Reservations
                 .Include(r => r.AssignedUnit)
-                .FirstOrDefaultAsync(r => r.ReservationID == request.ReservationID);
+                .Include(r => r.Payments)
+                .FirstOrDefaultAsync(r => r.ReservationID == request.ReservationID, cancellationToken);
 
             if (reservation == null) return NotFound(new { message = "Không tìm thấy Reservation." });
+            if (reservation.Status != ReservationStatus.PendingDeposit)
+                return Conflict(new { message = "Đặt chỗ không ở trạng thái chờ thanh toán hoặc đã được thanh toán." });
+            if (request.Amount <= 0 || request.Amount != reservation.DepositAmount)
+                return BadRequest(new { message = $"Số tiền thanh toán phải đúng bằng tiền cọc {reservation.DepositAmount}." });
+            if (reservation.Payments.Any(p => p.PaymentStatus == "Completed"))
+                return Conflict(new { message = "Đặt chỗ đã có giao dịch thanh toán thành công." });
 
             var payment = new Payment
             {
                 ReservationID = request.ReservationID,
-                TransactionReference = "TXN" + DateTime.Now.Ticks.ToString(),
+                TransactionReference = $"TXN-{Guid.NewGuid():N}",
                 Amount = request.Amount,
                 PaymentType = request.PaymentType,
-                PaymentDate = DateTime.Now.Date,
+                PaymentDate = DateTime.Today,
                 PaymentStatus = "Completed"
             };
 
             _context.Payments.Add(payment);
+            reservation.Status = ReservationStatus.Paid;
 
-            // Update status to Paid directly for simpler testing flow
-            reservation.Status = "Paid"; 
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Thanh toán thành công. Đơn hàng chuyển sang trạng thái đã thanh toán.", paymentId = payment.PaymentID });
+            return Ok(new
+            {
+                message = "Thanh toán thành công. Đơn hàng chuyển sang chờ phân kho.",
+                paymentId = payment.PaymentID,
+                transactionReference = payment.TransactionReference,
+                amount = payment.Amount,
+                reservationStatus = reservation.Status
+            });
         }
     }
 }

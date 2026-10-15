@@ -17,6 +17,8 @@ import BusinessOperations from './BusinessOperations'
 
 // Kết nối API thực — frontend lấy dữ liệu từ backend thay vì hard-code
 import { fetchCatalog } from './api.js'
+import { createReservation } from './api/reservations.js'
+import { confirmPayment } from './api/payments.js'
 
 const SYSTEM_ACCOUNTS = [
   { fullName: 'System Admin', email: 'admin@storespace.vn', password: 'Admin@123', role: 'SYSTEM_ADMIN' },
@@ -32,6 +34,16 @@ function roleHome(role) {
     case 'FACILITY_STAFF': return '/staff'
     default: return '/customer'
   }
+}
+
+function normalizeRole(roleName) {
+  const role = String(roleName || '').trim().toLowerCase()
+  if (role === 'storage customer') return 'customer'
+  if (role === 'facility staff') return 'FACILITY_STAFF'
+  if (role === 'facility manager') return 'FACILITY_MANAGER'
+  if (role === 'business operations manager') return 'BUSINESS_OPERATIONS'
+  if (role === 'system administrator') return 'SYSTEM_ADMIN'
+  return roleName || 'customer'
 }
 
 // ============================================================
@@ -95,67 +107,67 @@ const storageUnits = {
   // FacilityID = 1 – Cơ sở Lưu trữ Quận 1
   'Cơ sở Lưu trữ Quận 1': [
     { id: 'Q1-U01', type: 'Climate-Control Unit', size: 'S1: Locker (<2.5m)', price: '300.000đ/tháng', available: true },
-    { id: 'Q1-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m',          price: '500.000đ/tháng', available: true },
-    { id: 'Q1-U03', type: 'Indoor Unit',          size: 'M1: 2x6m',          price: '800.000đ/tháng', available: true },
-    { id: 'Q1-U04', type: 'Indoor Unit',          size: 'M2: 4x4m',          price: '1.000.000đ/tháng', available: false },
-    { id: 'Q1-U05', type: 'Basic Unit',           size: 'S2: 2x2m',          price: '400.000đ/tháng', available: true },
-    { id: 'Q1-U06', type: 'Basic Unit',           size: 'S3: 2x4m',          price: '600.000đ/tháng', available: true },
-    { id: 'Q1-U07', type: 'Drive-up Unit',        size: 'L3: 4x10m',         price: '2.000.000đ/tháng', available: true },
-    { id: 'Q1-U08', type: 'Drive-up Unit',        size: 'V1: 8x4m',          price: '2.500.000đ/tháng', available: true },
-    { id: 'Q1-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m',          price: '700.000đ/tháng', available: false },
-    { id: 'Q1-U10', type: 'Indoor Unit',          size: 'L1: 4x6m',          price: '1.200.000đ/tháng', available: true }
+    { id: 'Q1-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m', price: '500.000đ/tháng', available: true },
+    { id: 'Q1-U03', type: 'Indoor Unit', size: 'M1: 2x6m', price: '800.000đ/tháng', available: true },
+    { id: 'Q1-U04', type: 'Indoor Unit', size: 'M2: 4x4m', price: '1.000.000đ/tháng', available: false },
+    { id: 'Q1-U05', type: 'Basic Unit', size: 'S2: 2x2m', price: '400.000đ/tháng', available: true },
+    { id: 'Q1-U06', type: 'Basic Unit', size: 'S3: 2x4m', price: '600.000đ/tháng', available: true },
+    { id: 'Q1-U07', type: 'Drive-up Unit', size: 'L3: 4x10m', price: '2.000.000đ/tháng', available: true },
+    { id: 'Q1-U08', type: 'Drive-up Unit', size: 'V1: 8x4m', price: '2.500.000đ/tháng', available: true },
+    { id: 'Q1-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m', price: '700.000đ/tháng', available: false },
+    { id: 'Q1-U10', type: 'Indoor Unit', size: 'L1: 4x6m', price: '1.200.000đ/tháng', available: true }
   ],
   // FacilityID = 2 – Cơ sở Lưu trữ Tân Bình
   'Cơ sở Lưu trữ Tân Bình': [
     { id: 'TB-U01', type: 'Climate-Control Unit', size: 'S1: Locker (<2.5m)', price: '280.000đ/tháng', available: true },
-    { id: 'TB-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m',          price: '450.000đ/tháng', available: true },
-    { id: 'TB-U03', type: 'Basic Unit',           size: 'M1: 2x6m',          price: '750.000đ/tháng', available: false },
-    { id: 'TB-U04', type: 'Indoor Unit',          size: 'M2: 4x4m',          price: '900.000đ/tháng', available: true },
-    { id: 'TB-U05', type: 'Basic Unit',           size: 'S2: 2x2m',          price: '380.000đ/tháng', available: true },
-    { id: 'TB-U06', type: 'Basic Unit',           size: 'S3: 2x4m',          price: '550.000đ/tháng', available: true },
-    { id: 'TB-U07', type: 'Drive-up Unit',        size: 'L3: 4x10m',         price: '1.800.000đ/tháng', available: true },
-    { id: 'TB-U08', type: 'Drive-up Unit',        size: 'V1: 8x4m',          price: '2.200.000đ/tháng', available: true },
-    { id: 'TB-U09', type: 'Indoor Unit',          size: 'L1: 4x6m',          price: '1.100.000đ/tháng', available: true },
-    { id: 'TB-U10', type: 'Climate-Control Unit', size: 'S3: 2x4m',          price: '650.000đ/tháng', available: true }
+    { id: 'TB-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m', price: '450.000đ/tháng', available: true },
+    { id: 'TB-U03', type: 'Basic Unit', size: 'M1: 2x6m', price: '750.000đ/tháng', available: false },
+    { id: 'TB-U04', type: 'Indoor Unit', size: 'M2: 4x4m', price: '900.000đ/tháng', available: true },
+    { id: 'TB-U05', type: 'Basic Unit', size: 'S2: 2x2m', price: '380.000đ/tháng', available: true },
+    { id: 'TB-U06', type: 'Basic Unit', size: 'S3: 2x4m', price: '550.000đ/tháng', available: true },
+    { id: 'TB-U07', type: 'Drive-up Unit', size: 'L3: 4x10m', price: '1.800.000đ/tháng', available: true },
+    { id: 'TB-U08', type: 'Drive-up Unit', size: 'V1: 8x4m', price: '2.200.000đ/tháng', available: true },
+    { id: 'TB-U09', type: 'Indoor Unit', size: 'L1: 4x6m', price: '1.100.000đ/tháng', available: true },
+    { id: 'TB-U10', type: 'Climate-Control Unit', size: 'S3: 2x4m', price: '650.000đ/tháng', available: true }
   ],
   // FacilityID = 3 – Cơ sở Lưu trữ Thủ Đức
   'Cơ sở Lưu trữ Thủ Đức': [
     { id: 'TD-U01', type: 'Climate-Control Unit', size: 'S1: Locker (<2.5m)', price: '300.000đ/tháng', available: true },
-    { id: 'TD-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m',          price: '500.000đ/tháng', available: true },
-    { id: 'TD-U03', type: 'Indoor Unit',          size: 'M1: 2x6m',          price: '800.000đ/tháng', available: true },
-    { id: 'TD-U04', type: 'Indoor Unit',          size: 'M2: 4x4m',          price: '1.000.000đ/tháng', available: true },
-    { id: 'TD-U05', type: 'Basic Unit',           size: 'S2: 2x2m',          price: '400.000đ/tháng', available: true },
-    { id: 'TD-U06', type: 'Basic Unit',           size: 'S3: 2x4m',          price: '600.000đ/tháng', available: true },
-    { id: 'TD-U07', type: 'Drive-up Unit',        size: 'L3: 4x10m',         price: '2.000.000đ/tháng', available: true },
-    { id: 'TD-U08', type: 'Drive-up Unit',        size: 'V1: 8x4m',          price: '2.500.000đ/tháng', available: true },
-    { id: 'TD-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m',          price: '700.000đ/tháng', available: true },
-    { id: 'TD-U10', type: 'Indoor Unit',          size: 'L1: 4x6m',          price: '1.200.000đ/tháng', available: true }
+    { id: 'TD-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m', price: '500.000đ/tháng', available: true },
+    { id: 'TD-U03', type: 'Indoor Unit', size: 'M1: 2x6m', price: '800.000đ/tháng', available: true },
+    { id: 'TD-U04', type: 'Indoor Unit', size: 'M2: 4x4m', price: '1.000.000đ/tháng', available: true },
+    { id: 'TD-U05', type: 'Basic Unit', size: 'S2: 2x2m', price: '400.000đ/tháng', available: true },
+    { id: 'TD-U06', type: 'Basic Unit', size: 'S3: 2x4m', price: '600.000đ/tháng', available: true },
+    { id: 'TD-U07', type: 'Drive-up Unit', size: 'L3: 4x10m', price: '2.000.000đ/tháng', available: true },
+    { id: 'TD-U08', type: 'Drive-up Unit', size: 'V1: 8x4m', price: '2.500.000đ/tháng', available: true },
+    { id: 'TD-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m', price: '700.000đ/tháng', available: true },
+    { id: 'TD-U10', type: 'Indoor Unit', size: 'L1: 4x6m', price: '1.200.000đ/tháng', available: true }
   ],
   // FacilityID = 4 – Cơ sở Lưu trữ Quận 2
   'Cơ sở Lưu trữ Quận 2': [
     { id: 'Q2-U01', type: 'Climate-Control Unit', size: 'S1: Locker (<2.5m)', price: '350.000đ/tháng', available: true },
-    { id: 'Q2-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m',          price: '550.000đ/tháng', available: true },
-    { id: 'Q2-U03', type: 'Indoor Unit',          size: 'M1: 2x6m',          price: '850.000đ/tháng', available: true },
-    { id: 'Q2-U04', type: 'Indoor Unit',          size: 'M2: 4x4m',          price: '1.050.000đ/tháng', available: true },
-    { id: 'Q2-U05', type: 'Basic Unit',           size: 'S2: 2x2m',          price: '450.000đ/tháng', available: true },
-    { id: 'Q2-U06', type: 'Basic Unit',           size: 'S3: 2x4m',          price: '650.000đ/tháng', available: true },
-    { id: 'Q2-U07', type: 'Drive-up Unit',        size: 'L3: 4x10m',         price: '2.100.000đ/tháng', available: true },
-    { id: 'Q2-U08', type: 'Drive-up Unit',        size: 'V1: 8x4m',          price: '2.600.000đ/tháng', available: true },
-    { id: 'Q2-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m',          price: '750.000đ/tháng', available: true },
-    { id: 'Q2-U10', type: 'Indoor Unit',          size: 'L1: 4x6m',          price: '1.250.000đ/tháng', available: true }
+    { id: 'Q2-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m', price: '550.000đ/tháng', available: true },
+    { id: 'Q2-U03', type: 'Indoor Unit', size: 'M1: 2x6m', price: '850.000đ/tháng', available: true },
+    { id: 'Q2-U04', type: 'Indoor Unit', size: 'M2: 4x4m', price: '1.050.000đ/tháng', available: true },
+    { id: 'Q2-U05', type: 'Basic Unit', size: 'S2: 2x2m', price: '450.000đ/tháng', available: true },
+    { id: 'Q2-U06', type: 'Basic Unit', size: 'S3: 2x4m', price: '650.000đ/tháng', available: true },
+    { id: 'Q2-U07', type: 'Drive-up Unit', size: 'L3: 4x10m', price: '2.100.000đ/tháng', available: true },
+    { id: 'Q2-U08', type: 'Drive-up Unit', size: 'V1: 8x4m', price: '2.600.000đ/tháng', available: true },
+    { id: 'Q2-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m', price: '750.000đ/tháng', available: true },
+    { id: 'Q2-U10', type: 'Indoor Unit', size: 'L1: 4x6m', price: '1.250.000đ/tháng', available: true }
   ],
   // FacilityID = 5 – Cơ sở Lưu trữ Quận 3
   'Cơ sở Lưu trữ Quận 3': [
     { id: 'Q3-U01', type: 'Climate-Control Unit', size: 'S1: Locker (<2.5m)', price: '400.000đ/tháng', available: true },
-    { id: 'Q3-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m',          price: '600.000đ/tháng', available: true },
-    { id: 'Q3-U03', type: 'Indoor Unit',          size: 'M1: 2x6m',          price: '900.000đ/tháng', available: true },
-    { id: 'Q3-U04', type: 'Indoor Unit',          size: 'M2: 4x4m',          price: '1.100.000đ/tháng', available: true },
-    { id: 'Q3-U05', type: 'Basic Unit',           size: 'S2: 2x2m',          price: '500.000đ/tháng', available: true },
-    { id: 'Q3-U06', type: 'Basic Unit',           size: 'S3: 2x4m',          price: '700.000đ/tháng', available: true },
-    { id: 'Q3-U07', type: 'Drive-up Unit',        size: 'L3: 4x10m',         price: '2.200.000đ/tháng', available: true },
-    { id: 'Q3-U08', type: 'Drive-up Unit',        size: 'V1: 8x4m',          price: '2.700.000đ/tháng', available: true },
-    { id: 'Q3-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m',          price: '800.000đ/tháng', available: true },
-    { id: 'Q3-U10', type: 'Indoor Unit',          size: 'L1: 4x6m',          price: '1.300.000đ/tháng', available: true }
+    { id: 'Q3-U02', type: 'Climate-Control Unit', size: 'S2: 2x2m', price: '600.000đ/tháng', available: true },
+    { id: 'Q3-U03', type: 'Indoor Unit', size: 'M1: 2x6m', price: '900.000đ/tháng', available: true },
+    { id: 'Q3-U04', type: 'Indoor Unit', size: 'M2: 4x4m', price: '1.100.000đ/tháng', available: true },
+    { id: 'Q3-U05', type: 'Basic Unit', size: 'S2: 2x2m', price: '500.000đ/tháng', available: true },
+    { id: 'Q3-U06', type: 'Basic Unit', size: 'S3: 2x4m', price: '700.000đ/tháng', available: true },
+    { id: 'Q3-U07', type: 'Drive-up Unit', size: 'L3: 4x10m', price: '2.200.000đ/tháng', available: true },
+    { id: 'Q3-U08', type: 'Drive-up Unit', size: 'V1: 8x4m', price: '2.700.000đ/tháng', available: true },
+    { id: 'Q3-U09', type: 'Climate-Control Unit', size: 'S3: 2x4m', price: '800.000đ/tháng', available: true },
+    { id: 'Q3-U10', type: 'Indoor Unit', size: 'L1: 4x6m', price: '1.300.000đ/tháng', available: true }
   ]
 }
 
@@ -622,7 +634,7 @@ function BookingPage({ facility, unit }) {
   const monthlyPrice = Number(unit.price.replace(/\D/g, ''))
   const totalMonths = Number(duration)
   const totalRent = monthlyPrice * totalMonths
-  const deposit = Math.round(totalRent * 0.2)
+  const deposit = Math.round(totalRent * Number(facility.depositPercent ?? 20) / 100)
 
   const years = Array.from(
     { length: 6 },
@@ -710,26 +722,22 @@ function BookingPage({ facility, unit }) {
     }
 
     try {
-      const payload = {
-        CustomerEmail: currentUser.email,
-        UnitNumber: unit.id,
-        StartDate: startDate.toISOString(),
-        Months: totalMonths,
-        TotalEstimatedCost: deposit + totalRent
-      }
-      const res = await fetch('http://localhost:5046/api/Reservation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const isoStartDate = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+      const result = await createReservation({
+        customerEmail: currentUser.email,
+        unitNumber: unit.id,
+        startDate: isoStartDate,
+        months: totalMonths,
+        totalEstimatedCost: deposit + totalRent
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.message || 'Đặt kho thất bại.')
+      if (!result.ok) {
+        setError(result.message || 'Đặt kho thất bại.')
         return
       }
 
       const bookingData = {
-        id: data.reservationId ? `BK-${data.reservationId}` : `BK-${Date.now()}`,
+        id: result.reservationId,
+        reservationId: result.reservationId,
         customerName: currentUser.name,
         customerEmail: currentUser.email,
         facility: facility.name,
@@ -739,13 +747,13 @@ function BookingPage({ facility, unit }) {
         startDate: formatDate(startDate),
         endDate: formatDate(endDate),
         durationMonths: totalMonths,
-        monthlyPrice,
-        totalRent,
+        monthlyPrice: result.monthlyPrice ?? monthlyPrice,
+        totalRent: result.rentalAmount ?? totalRent,
         paymentMode,
         paymentCycle: paymentMode === 'cycle'
           ? Number(paymentCycle)
           : totalMonths,
-        deposit,
+        deposit: result.depositAmount ?? deposit,
         status: 'PENDING_DEPOSIT_PAYMENT',
         createdAt: new Date().toISOString()
       }
@@ -764,57 +772,33 @@ function BookingPage({ facility, unit }) {
   }
 
   //Đã cập nhật: Đơn chuyển qua Facility Manager duyệt
-  const handleDepositPaid = () => {
+  const handleDepositPaid = async () => {
     if (!booking) return
+    setError('')
+
+    const payment = await confirmPayment({
+      reservationId: booking.reservationId,
+      amount: booking.deposit,
+      paymentType: 'Deposit'
+    })
+    if (!payment.ok) {
+      setError(payment.message || 'Thanh toán thất bại.')
+      return
+    }
 
     const updatedBooking = {
       ...booking,
       depositPaid: true,
       depositPaidAt: new Date().toISOString(),
       status: 'PENDING_APPROVAL', // Nhảy thẳng sang Manager chờ duyệt
-      paymentStatus: 'PAID'       // Đã cọc thành công
+      paymentStatus: 'PAID',
+      paymentTxn: payment.transactionReference
     }
 
     localStorage.setItem(
       PENDING_BOOKING_KEY,
       JSON.stringify(updatedBooking)
     )
-
-    // Đồng bộ trực tiếp dữ liệu vào Database chung
-    const db = getStaffDb() || { facilities: [], units: [], reservations: [], contracts: [], activity: [] }
-    const start = booking.startDate ? booking.startDate.split('/').reverse().join('-') : ''
-
-    const newReservation = {
-      id: booking.id,
-      customerName: booking.customerName,
-      customerEmail: booking.customerEmail,
-      customerPhone: '—',
-      facilityId: booking.facility,
-      unitId: booking.unitId,
-      unitType: `${booking.unitType} ${booking.size}`,
-      startDate: start,
-      months: booking.durationMonths,
-      appointmentDate: start,
-      appointmentTime: 'Cả ngày',
-      deposit: booking.deposit,
-      rentalFee: booking.totalRent,
-      paymentStatus: 'PAID',          // Đánh dấu đã nhận cọc
-      paymentTxn: `TXN-${booking.id}`,
-      status: 'PENDING_APPROVAL',     // Đẩy sang cho Manager duyệt
-      assignedUnitId: null,
-      contractId: null,
-      source: 'live'
-    }
-
-    // Ghi đè/Thêm mới đơn vào danh sách reservations
-    const updatedReservations = [newReservation, ...(db.reservations || []).filter(r => r.id !== booking.id)]
-
-    // Khóa kho sang trạng thái RESERVED (Giữ chỗ)
-    const updatedUnits = (db.units || []).map(u =>
-      u.id === booking.unitId && u.status === 'AVAILABLE' ? { ...u, status: 'RESERVED' } : u
-    )
-
-    localStorage.setItem(STAFF_DB_KEY, JSON.stringify({ ...db, reservations: updatedReservations, units: updatedUnits }))
 
     setBooking(updatedBooking)
     setDepositPaid(true)
@@ -1370,19 +1354,19 @@ function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password })
       })
-      
+
       const data = await res.json()
-      
+
       if (!res.ok) {
         return setError(data.message || 'Đăng nhập thất bại.')
       }
 
-      const role = data.roleName || 'customer'
-      
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify({ 
-        name: data.fullName, 
-        email: data.email, 
-        role: role, 
+      const role = normalizeRole(data.roleName)
+
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify({
+        name: data.fullName,
+        email: data.email,
+        role: role,
         facilityId: '*'
       }))
 
@@ -1420,16 +1404,16 @@ function RegisterPage() {
       const res = await fetch('http://localhost:5046/api/Auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          fullName: name.trim(), 
-          email: email.trim(), 
-          password: password, 
-          roleName: 'Storage Customer' 
+        body: JSON.stringify({
+          fullName: name.trim(),
+          email: email.trim(),
+          password: password,
+          roleName: 'Storage Customer'
         })
       })
-      
+
       const data = await res.json()
-      
+
       if (!res.ok) {
         return setError(data.message || 'Đăng ký thất bại.')
       }
@@ -1593,29 +1577,31 @@ function Router() {
   // Hiển thị loading khi chưa có dữ liệu
   if (!liveFacilities) {
     return (
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', flexDirection:'column', gap:'16px', background:'#0d0d1a', color:'#e2e8f0' }}>
-        <div style={{ fontSize:'2rem' }}>⌛</div>
-        <div style={{ fontSize:'1.1rem' }}>Đang kết nối hệ thống...</div>
-        <div style={{ fontSize:'0.85rem', opacity:0.5 }}>Kết nối tới backend API tại localhost:5046</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: '16px', background: '#0d0d1a', color: '#e2e8f0' }}>
+        <div style={{ fontSize: '2rem' }}>⌛</div>
+        <div style={{ fontSize: '1.1rem' }}>Đang kết nối hệ thống...</div>
+        <div style={{ fontSize: '0.85rem', opacity: 0.5 }}>Kết nối tới backend API tại localhost:5046</div>
       </div>
     )
   }
 
   // Badge trạng thái API — chỉ hiện trong dev
   const ApiBadge = () => (
-    <div style={{ position:'fixed', bottom:'12px', right:'12px', zIndex:9999,
+    <div style={{
+      position: 'fixed', bottom: '12px', right: '12px', zIndex: 9999,
       background: apiStatus === 'live' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
       border: `1px solid ${apiStatus === 'live' ? '#10b981' : '#f59e0b'}`,
-      borderRadius:'8px', padding:'6px 12px', fontSize:'0.75rem', fontFamily:'monospace',
-      color: apiStatus === 'live' ? '#10b981' : '#f59e0b', backdropFilter:'blur(8px)' }}>
+      borderRadius: '8px', padding: '6px 12px', fontSize: '0.75rem', fontFamily: 'monospace',
+      color: apiStatus === 'live' ? '#10b981' : '#f59e0b', backdropFilter: 'blur(8px)'
+    }}>
       {apiStatus === 'live' ? '🟢 API Live — dữ liệu từ DB' : '🟡 API Offline — dữ liệu tạm (seed)'}
     </div>
   )
 
-  if (route.type === 'login') return <><ApiBadge/><LoginPage /></>
-  if (route.type === 'register') return <><ApiBadge/><RegisterPage /></>
-  if (route.type === 'search') return <><ApiBadge/><SearchPage /></>
-  if (route.type === 'facilities') return <><ApiBadge/><FacilitiesPage /></>
+  if (route.type === 'login') return <><ApiBadge /><LoginPage /></>
+  if (route.type === 'register') return <><ApiBadge /><RegisterPage /></>
+  if (route.type === 'search') return <><ApiBadge /><SearchPage /></>
+  if (route.type === 'facilities') return <><ApiBadge /><FacilitiesPage /></>
 
   // Chỉ đúng role mới được vào khu Admin / Business
   if (route.type === 'admin') {
@@ -1627,13 +1613,13 @@ function Router() {
 
   //Đã cập nhật: Router render StaffPortal
   if (route.type === 'staff') {
-    return <><ApiBadge/><StaffPortal embedded currentUser={getCurrentUser()} navigate={navigate} currentUserKey={CURRENT_USER_KEY} /></>
+    return <><ApiBadge /><StaffPortal embedded currentUser={getCurrentUser()} navigate={navigate} currentUserKey={CURRENT_USER_KEY} /></>
   }
   //Đã thêm: 05/10/2026
 
   //Đã cập nhật: Router render FacilityManagerDashboard
   if (route.type === 'manager') {
-    return <><ApiBadge/><FacilityManagerDashboard embedded currentUser={getCurrentUser()} navigate={navigate} currentUserKey={CURRENT_USER_KEY} /></>
+    return <><ApiBadge /><FacilityManagerDashboard embedded currentUser={getCurrentUser()} navigate={navigate} currentUserKey={CURRENT_USER_KEY} /></>
   }
   //Đã thêm: 05/10/2026
 
@@ -1643,7 +1629,7 @@ function Router() {
     //Đã thêm: 05/10/2026
 
     //Đã cập nhật: Truyền dữ liệu từ API (hoặc fallback) xuống CustomerDashboard
-    return <><ApiBadge/><CustomerDashboard
+    return <><ApiBadge /><CustomerDashboard
       facilities={liveFacilities}
       storageUnits={liveUnits}
       customerRental={customerRental}
@@ -1654,10 +1640,10 @@ function Router() {
     /></>
     //Đã thêm: 05/10/2026
   }
-  if (route.type === 'booking') return <><ApiBadge/><BookingPage facility={route.facility} unit={route.unit} /></>
-  if (route.type === 'unit-detail') return <><ApiBadge/><UnitDetailPage facility={route.facility} unit={route.unit} /></>
-  if (route.type === 'detail') return <><ApiBadge/><FacilityDetailPage facility={route.facility} /></>
-  return <><ApiBadge/><HomePage facilities={liveFacilities} storageUnits={liveUnits} /></>
+  if (route.type === 'booking') return <><ApiBadge /><BookingPage facility={route.facility} unit={route.unit} /></>
+  if (route.type === 'unit-detail') return <><ApiBadge /><UnitDetailPage facility={route.facility} unit={route.unit} /></>
+  if (route.type === 'detail') return <><ApiBadge /><FacilityDetailPage facility={route.facility} /></>
+  return <><ApiBadge /><HomePage facilities={liveFacilities} storageUnits={liveUnits} /></>
 }
 
 createRoot(document.getElementById('root')).render(<Router />)

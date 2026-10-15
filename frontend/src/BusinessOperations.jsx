@@ -1,9 +1,20 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./BusinessOperations.css";
+import {
+    createFacility,
+    deleteRentalRate,
+    fetchOperationsReport,
+    fetchOperationsState,
+    updateRentalPolicy,
+    updateRentalRate
+} from "./api/operations.js";
 
 function BusinessOperations() {
     const [activeMenu, setActiveMenu] = useState("dashboard");
     const [showAddFacility, setShowAddFacility] = useState(false);
+    const [workflowState, setWorkflowState] = useState({ units: [], managers: [], staffUsers: [] });
+    const [operationsReport, setOperationsReport] = useState(null);
+    const [apiError, setApiError] = useState("");
 
     const [facilities, setFacilities] = useState([
         {
@@ -72,40 +83,64 @@ function BusinessOperations() {
         status: "active"
     });
 
-    const handleAddFacility = () => {
+    const refreshOperationsData = async () => {
+        try {
+            const [state, report] = await Promise.all([
+                fetchOperationsState(),
+                fetchOperationsReport()
+            ]);
+            setWorkflowState(state);
+            setOperationsReport(report);
+            const liveFacilities = (state.facilities || []).map((facility) => {
+                const facilityUnits = (state.units || []).filter((unit) => unit.facilityDbId === facility.facilityId);
+                return {
+                    id: facility.facilityId,
+                    name: facility.name,
+                    area: facility.address.split(",").slice(-2, -1)[0]?.trim() || "",
+                    address: facility.address,
+                    manager: facility.managerEmail || "",
+                    totalUnits: facilityUnits.length,
+                    rentedUnits: facilityUnits.filter((unit) => unit.status === "RENTED").length,
+                    maintenanceUnits: facilityUnits.filter((unit) => unit.status === "MAINTENANCE").length,
+                    status: String(facility.status || "").toLowerCase(),
+                    depositPercent: facility.depositPercent
+                };
+            });
+            setFacilities(liveFacilities);
+            setApiError("");
+        } catch (error) {
+            console.error("[API] Business Operations state refresh failed:", error);
+            setApiError(error.message || "Không thể tải dữ liệu vận hành từ máy chủ.");
+        }
+    };
+
+    useEffect(() => {
+        void refreshOperationsData();
+    }, []);
+
+    const handleAddFacility = async () => {
         if (
             !newFacility.name.trim() ||
             !newFacility.area.trim() ||
             !newFacility.address.trim() ||
-            !newFacility.totalUnits
+            !newFacility.manager
         ) {
-            alert("Vui lòng nhập đầy đủ thông tin cơ sở.");
+            alert("Vui lòng nhập đầy đủ thông tin cơ sở và chọn Facility Manager.");
             return;
         }
 
-        const totalUnits = Number(newFacility.totalUnits);
-
-        if (totalUnits <= 0) {
-            alert("Số lượng kho phải lớn hơn 0.");
+        try {
+            await createFacility({
+                FacilityName: newFacility.name.trim(),
+                Address: newFacility.address.trim(),
+                ManagerEmail: newFacility.manager,
+                Status: newFacility.status
+            });
+            await refreshOperationsData();
+        } catch (error) {
+            setApiError(error.message || "Không thể tạo cơ sở.");
             return;
         }
-
-        const newFacilityData = {
-            id: Date.now(),
-            name: newFacility.name.trim(),
-            area: newFacility.area.trim(),
-            address: newFacility.address.trim(),
-            manager: newFacility.manager,
-            totalUnits: totalUnits,
-            rentedUnits: 0,
-            maintenanceUnits: 0,
-            status: newFacility.status
-        };
-
-        setFacilities((currentFacilities) => [
-            ...currentFacilities,
-            newFacilityData
-        ]);
 
         setNewFacility({
             name: "",
@@ -293,7 +328,7 @@ function BusinessOperations() {
                 <section className="business-content">
 
                     {activeMenu === "dashboard" && (
-                        <BusinessDashboard facilities={facilities} />
+                        <BusinessDashboard facilities={facilities} report={operationsReport} />
                     )}
 
                     {activeMenu === "facilities" && (
@@ -305,7 +340,24 @@ function BusinessOperations() {
                     )}
 
                     {activeMenu === "prices" && (
-                        <BusinessPrices facilities={facilities} />
+                        <BusinessPrices
+                            facilities={facilities}
+                            rentalRates={workflowState.rentalRates || []}
+                            unitTypes={workflowState.unitTypes || []}
+                            unitSizes={workflowState.unitSizes || []}
+                            onSaveRate={async (facilityId, rate) => {
+                                await updateRentalRate(facilityId, rate);
+                                await refreshOperationsData();
+                            }}
+                            onDeleteRate={async (facilityId, rate) => {
+                                await deleteRentalRate(facilityId, rate.unitTypeId, rate.unitSizeId);
+                                await refreshOperationsData();
+                            }}
+                            onSavePolicy={async (facilityId, depositPercent) => {
+                                await updateRentalPolicy(facilityId, depositPercent);
+                                await refreshOperationsData();
+                            }}
+                        />
                     )}
 
                     {activeMenu === "policies" && (
@@ -313,14 +365,19 @@ function BusinessOperations() {
                     )}
 
                     {activeMenu === "revenue" && (
-                        <BusinessRevenue facilities={facilities} />
+                        <BusinessRevenue
+                            facilities={facilities}
+                            report={operationsReport}
+                            payments={workflowState.payments || []}
+                        />
                     )}
 
                     {activeMenu === "reports" && (
-                        <BusinessReports facilities={facilities} />
+                        <BusinessReports facilities={facilities} report={operationsReport} />
                     )}
 
                 </section>
+                {apiError && <div className="auth-message error" role="alert">{apiError}</div>}
 
             </main>
 
@@ -409,7 +466,7 @@ function BusinessOperations() {
 
                             <div className="facility-form-group">
                                 <label>
-                                    Số lượng kho
+                                    Số lượng kho dự kiến
                                 </label>
 
                                 <input
@@ -425,9 +482,7 @@ function BusinessOperations() {
                                     placeholder="Ví dụ: 30"
                                 />
 
-                                <small>
-                                    Số kho được tạo ban đầu cho cơ sở
-                                </small>
+                                <small>Kho thực tế được Facility Manager tạo riêng.</small>
                             </div>
 
                             <div className="facility-form-group">
@@ -445,16 +500,18 @@ function BusinessOperations() {
                                     }
                                 >
                                     <option value="">
-                                        Chưa phân công Manager
+                                        Chọn Facility Manager
                                     </option>
-                                    <option value="pending">
-                                        Sẽ phân công sau
-                                    </option>
-                                </select>
+                                        {workflowState.managers.map((manager) => (
+                                            <option key={manager.userId} value={manager.email}>
+                                                {manager.fullName} · {manager.email}
+                                            </option>
+                                        ))}
+                                    </select>
 
-                                <small>
-                                    Chức năng chọn Facility Manager sẽ bổ sung sau.
-                                </small>
+                                    <small>
+                                        Người quản lý được lưu trực tiếp vào cơ sở dữ liệu.
+                                    </small>
                             </div>
 
                             <div className="facility-form-group">
@@ -514,69 +571,55 @@ function BusinessOperations() {
    BUSINESS PRICES
 ===================================================== */
 
-function BusinessPrices({ facilities }) {
+function BusinessPrices({
+    facilities,
+    rentalRates = [],
+    unitTypes = [],
+    unitSizes = [],
+    onSaveRate,
+    onDeleteRate,
+    onSavePolicy
+}) {
     const [selectedFacilityId, setSelectedFacilityId] = useState(
         facilities.length > 0 ? facilities[0].id : null
     );
-
-    const [pricesByFacility, setPricesByFacility] = useState({
-        1: [
-            { id: 101, type: "Kho thường", size: "10 m²", price: 1500000 },
-            { id: 102, type: "Kho thường", size: "20 m²", price: 2800000 },
-            { id: 103, type: "Kho lạnh", size: "10 m²", price: 2000000 },
-            { id: 104, type: "Kho lạnh", size: "20 m²", price: 3500000 },
-            { id: 105, type: "Kho đông lạnh", size: "10 m²", price: 2500000 },
-            { id: 106, type: "Kho đông lạnh", size: "20 m²", price: 4000000 }
-        ],
-        2: [
-            { id: 201, type: "Kho thường", size: "10 m²", price: 1400000 },
-            { id: 202, type: "Kho thường", size: "20 m²", price: 2700000 },
-            { id: 203, type: "Kho lạnh", size: "10 m²", price: 1900000 },
-            { id: 204, type: "Kho lạnh", size: "20 m²", price: 3300000 },
-            { id: 205, type: "Kho đông lạnh", size: "10 m²", price: 2400000 },
-            { id: 206, type: "Kho đông lạnh", size: "20 m²", price: 3800000 }
-        ],
-        3: [
-            { id: 301, type: "Kho thường", size: "10 m²", price: 1300000 },
-            { id: 302, type: "Kho thường", size: "20 m²", price: 2500000 },
-            { id: 303, type: "Kho lạnh", size: "10 m²", price: 1800000 },
-            { id: 304, type: "Kho lạnh", size: "20 m²", price: 3200000 },
-            { id: 305, type: "Kho đông lạnh", size: "10 m²", price: 2300000 },
-            { id: 306, type: "Kho đông lạnh", size: "20 m²", price: 3600000 }
-        ],
-        4: [
-            { id: 401, type: "Kho thường", size: "10 m²", price: 1500000 },
-            { id: 402, type: "Kho thường", size: "20 m²", price: 2700000 },
-            { id: 403, type: "Kho lạnh", size: "10 m²", price: 1950000 },
-            { id: 404, type: "Kho lạnh", size: "20 m²", price: 3400000 },
-            { id: 405, type: "Kho đông lạnh", size: "10 m²", price: 2450000 },
-            { id: 406, type: "Kho đông lạnh", size: "20 m²", price: 3900000 }
-        ],
-        5: [
-            { id: 501, type: "Kho thường", size: "10 m²", price: 1300000 },
-            { id: 502, type: "Kho thường", size: "20 m²", price: 2500000 },
-            { id: 503, type: "Kho lạnh", size: "10 m²", price: 1800000 },
-            { id: 504, type: "Kho lạnh", size: "20 m²", price: 3100000 },
-            { id: 505, type: "Kho đông lạnh", size: "10 m²", price: 2300000 },
-            { id: 506, type: "Kho đông lạnh", size: "20 m²", price: 3500000 }
-        ]
-    });
-
     const [showPriceModal, setShowPriceModal] = useState(false);
     const [editingPrice, setEditingPrice] = useState(null);
     const [priceForm, setPriceForm] = useState({
-        type: "Kho thường",
-        size: "10 m²",
+        unitTypeId: "",
+        unitSizeId: "",
         price: ""
     });
+    const [depositPercent, setDepositPercent] = useState(20);
+    const [policySaving, setPolicySaving] = useState(false);
+    const [policyError, setPolicyError] = useState("");
 
     const selectedFacility = facilities.find(
         (facility) => facility.id === selectedFacilityId
     );
 
+    useEffect(() => {
+        setDepositPercent(Number(selectedFacility?.depositPercent ?? 20));
+    }, [selectedFacility?.id, selectedFacility?.depositPercent]);
+
+    useEffect(() => {
+        if (!facilities.some(facility => facility.id === selectedFacilityId)) {
+            setSelectedFacilityId(facilities[0]?.id ?? null);
+        }
+    }, [facilities, selectedFacilityId]);
+
     const currentPrices = selectedFacility
-        ? pricesByFacility[selectedFacility.id] || []
+        ? rentalRates
+            .filter(rate => rate.facilityId === selectedFacility.id)
+            .map(rate => ({
+                ...rate,
+                id: `${rate.unitTypeId}-${rate.unitSizeId}`,
+                type: rate.unitType,
+                size: rate.size,
+                price: rate.price
+            }))
         : [];
+    const priceSizes = unitSizes;
 
     const formatMoney = (money) => {
         return new Intl.NumberFormat("vi-VN").format(money) + " đ";
@@ -585,8 +628,8 @@ function BusinessPrices({ facilities }) {
     const openAddPrice = () => {
         setEditingPrice(null);
         setPriceForm({
-            type: "Kho thường",
-            size: "10 m²",
+            unitTypeId: unitTypes[0]?.unitTypeId ?? "",
+            unitSizeId: unitSizes[0]?.unitSizeId ?? "",
             price: ""
         });
         setShowPriceModal(true);
@@ -595,14 +638,14 @@ function BusinessPrices({ facilities }) {
     const openEditPrice = (priceItem) => {
         setEditingPrice(priceItem);
         setPriceForm({
-            type: priceItem.type,
-            size: priceItem.size,
+            unitTypeId: priceItem.unitTypeId,
+            unitSizeId: priceItem.unitSizeId,
             price: String(priceItem.price)
         });
         setShowPriceModal(true);
     };
 
-    const handleSavePrice = () => {
+    const handleSavePrice = async () => {
         if (!selectedFacility) {
             alert("Vui lòng chọn cơ sở.");
             return;
@@ -610,7 +653,7 @@ function BusinessPrices({ facilities }) {
 
         const numericPrice = Number(priceForm.price);
 
-        if (!priceForm.type || !priceForm.size || !priceForm.price) {
+        if (!priceForm.unitTypeId || !priceForm.unitSizeId || !priceForm.price) {
             alert("Vui lòng nhập đầy đủ thông tin giá.");
             return;
         }
@@ -620,69 +663,57 @@ function BusinessPrices({ facilities }) {
             return;
         }
 
-        if (editingPrice) {
-            setPricesByFacility((currentPricesByFacility) => ({
-                ...currentPricesByFacility,
-                [selectedFacility.id]: (
-                    currentPricesByFacility[selectedFacility.id] || []
-                ).map((item) =>
-                    item.id === editingPrice.id
-                        ? {
-                            ...item,
-                            type: priceForm.type,
-                            size: priceForm.size,
-                            price: numericPrice
-                        }
-                        : item
-                )
-            }));
-        } else {
-            const duplicate = currentPrices.some(
-                (item) =>
-                    item.type === priceForm.type &&
-                    item.size === priceForm.size
-            );
-
-            if (duplicate) {
-                alert("Mức giá cho loại kho và diện tích này đã tồn tại.");
-                return;
-            }
-
-            const newPrice = {
-                id: Date.now(),
-                type: priceForm.type,
-                size: priceForm.size,
-                price: numericPrice
-            };
-
-            setPricesByFacility((currentPricesByFacility) => ({
-                ...currentPricesByFacility,
-                [selectedFacility.id]: [
-                    ...(currentPricesByFacility[selectedFacility.id] || []),
-                    newPrice
-                ]
-            }));
+        const duplicate = currentPrices.some(item =>
+            item.unitTypeId === Number(priceForm.unitTypeId) &&
+            item.unitSizeId === Number(priceForm.unitSizeId)
+        );
+        if (duplicate && !editingPrice) {
+            alert("Mức giá cho loại kho và kích thước này đã tồn tại.");
+            return;
         }
 
-        setShowPriceModal(false);
-        setEditingPrice(null);
+        try {
+            await onSaveRate(selectedFacility.id, {
+                UnitTypeID: Number(priceForm.unitTypeId),
+                UnitSizeID: Number(priceForm.unitSizeId),
+                BasePrice: numericPrice
+            });
+            setShowPriceModal(false);
+            setEditingPrice(null);
+        } catch (error) {
+            setPolicyError(error.message || "Không thể lưu biểu phí.");
+        }
     };
 
-    const handleDeletePrice = (priceId) => {
-        if (!selectedFacility) return;
-
+    const handleDeletePrice = async (priceItem) => {
+        if (!selectedFacility || !onDeleteRate) return;
         const confirmed = window.confirm(
             "Bạn có chắc muốn xóa mức giá này không?"
         );
 
         if (!confirmed) return;
+        try {
+            await onDeleteRate(selectedFacility.id, priceItem);
+        } catch (error) {
+            setPolicyError(error.message || "Không thể xóa biểu phí.");
+        }
+    };
 
-        setPricesByFacility((currentPricesByFacility) => ({
-            ...currentPricesByFacility,
-            [selectedFacility.id]: (
-                currentPricesByFacility[selectedFacility.id] || []
-            ).filter((item) => item.id !== priceId)
-        }));
+    const handleSavePolicy = async () => {
+        if (!selectedFacility || !Number.isFinite(Number(depositPercent)) ||
+            Number(depositPercent) < 0 || Number(depositPercent) > 100) {
+            setPolicyError("Tỷ lệ đặt cọc phải nằm trong khoảng 0–100%.");
+            return;
+        }
+        setPolicySaving(true);
+        setPolicyError("");
+        try {
+            await onSavePolicy(selectedFacility.id, Number(depositPercent));
+        } catch (error) {
+            setPolicyError(error.message || "Không thể lưu chính sách đặt cọc.");
+        } finally {
+            setPolicySaving(false);
+        }
     };
 
     return (
@@ -753,6 +784,37 @@ function BusinessPrices({ facilities }) {
             </div>
 
             <div className="business-panel">
+                <div className="business-panel-header">
+                    <div>
+                        <h3>Chính sách đặt cọc</h3>
+                        <p>Tỷ lệ này được dùng để tính tiền cọc cho các đặt chỗ mới tại cơ sở đã chọn.</p>
+                    </div>
+                </div>
+                <div className="bo-prices-grid-02">
+                    <label className="bo-prices-field-03">
+                        Tỷ lệ đặt cọc (%)
+                        <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            value={depositPercent}
+                            onChange={event => setDepositPercent(event.target.value)}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        className="facility-add-button"
+                        onClick={handleSavePolicy}
+                        disabled={!selectedFacility || policySaving}
+                    >
+                        {policySaving ? "Đang lưu..." : "Lưu chính sách"}
+                    </button>
+                </div>
+                {policyError && <div className="auth-message error" role="alert">{policyError}</div>}
+            </div>
+
+            <div className="business-panel">
 
                 <div className="business-panel-header">
                     <div>
@@ -808,7 +870,7 @@ function BusinessPrices({ facilities }) {
 
                                         <button
                                             type="button"
-                                            onClick={() => handleDeletePrice(priceItem.id)}
+                                            onClick={() => handleDeletePrice(priceItem)}
                                             className="bo-prices-btn-13"
                                         >
                                             Xóa
@@ -866,37 +928,34 @@ function BusinessPrices({ facilities }) {
                             <div className="facility-form-group">
                                 <label>Loại kho</label>
                                 <select
-                                    value={priceForm.type}
+                                    value={priceForm.unitTypeId}
                                     onChange={(e) =>
                                         setPriceForm({
                                             ...priceForm,
-                                            type: e.target.value
+                                            unitTypeId: e.target.value
                                         })
                                     }
                                 >
-                                    <option value="Kho thường">Kho thường</option>
-                                    <option value="Kho lạnh">Kho lạnh</option>
-                                    <option value="Kho đông lạnh">Kho đông lạnh</option>
+                                    {unitTypes.map(type => (
+                                        <option key={type.unitTypeId} value={type.unitTypeId}>{type.name}</option>
+                                    ))}
                                 </select>
                             </div>
 
                             <div className="facility-form-group">
                                 <label>Diện tích</label>
                                 <select
-                                    value={priceForm.size}
+                                    value={priceForm.unitSizeId}
                                     onChange={(e) =>
                                         setPriceForm({
                                             ...priceForm,
-                                            size: e.target.value
+                                            unitSizeId: e.target.value
                                         })
                                     }
                                 >
-                                    <option value="5 m²">5 m²</option>
-                                    <option value="10 m²">10 m²</option>
-                                    <option value="12 m²">12 m²</option>
-                                    <option value="15 m²">15 m²</option>
-                                    <option value="20 m²">20 m²</option>
-                                    <option value="30 m²">30 m²</option>
+                                    {priceSizes.map(size => (
+                                        <option key={size.unitSizeId} value={size.unitSizeId}>{size.dimensions}</option>
+                                    ))}
                                 </select>
                             </div>
 
@@ -1563,7 +1622,7 @@ function BusinessPolicies() {
    BUSINESS REPORTS
 ===================================================== */
 
-function BusinessReports({ facilities }) {
+function BusinessReports({ facilities, report }) {
     const [reportPeriod, setReportPeriod] = useState("6");
     const [reportFacility, setReportFacility] = useState("all");
     const [reportDetail, setReportDetail] = useState(null);
@@ -1644,23 +1703,29 @@ function BusinessReports({ facilities }) {
         { month: "Oct", value: 91 }
     ];
 
-    const chartData =
-        reportPeriod === "12"
+    const chartData = report
+        ? []
+        : reportPeriod === "12"
             ? monthData12
             : reportPeriod === "year"
                 ? monthDataYear
                 : monthData6;
 
-    const currentRevenue = filteredFacilities.reduce(
+    const estimatedRevenue = filteredFacilities.reduce(
         (sum, facility) =>
             sum + Number(facility.rentedUnits || 0) * 2100000,
         0
     );
+    const currentRevenue = report
+        ? report.facilities
+            .filter(facility => filteredFacilities.some(item => item.id === facility.facilityId))
+            .reduce((sum, facility) => sum + Number(facility.receivedRevenue || 0), 0)
+        : estimatedRevenue;
 
-    const previousRevenue = Math.round(currentRevenue / 1.092);
+    const previousRevenue = report ? 0 : Math.round(currentRevenue / 1.092);
     const growth = previousRevenue > 0
         ? (((currentRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
-        : "0.0";
+        : report ? "—" : "0.0";
 
     const expiringContracts = filteredFacilities.length > 0
         ? Math.min(7, Math.max(2, Math.ceil(rentedUnits * 0.12)))
@@ -1958,7 +2023,7 @@ function BusinessReports({ facilities }) {
             <div className="bo-reports-box-25">
                 <div className="bo-reports-box-26">
                     <h3 className="bo-section-title">🏢 Hiệu quả theo từng cơ sở</h3>
-                    <p className="bo-section-text">So sánh số kho, công suất và doanh thu ước tính.</p>
+                    <p className="bo-section-text">Công suất tính từ kho đã bàn giao; doanh thu tính từ giao dịch đã thu.</p>
                 </div>
 
                 <div className="bo-reports-box-27">
@@ -1979,10 +2044,15 @@ function BusinessReports({ facilities }) {
                                 0,
                                 facility.totalUnits - facility.rentedUnits - facility.maintenanceUnits
                             );
-                            const facilityUtilization = facility.totalUnits > 0
+                            const realized = report?.facilities.find(item => item.facilityId === facility.id);
+                            const facilityUtilization = realized
+                                ? Number(realized.occupancyRate)
+                                : facility.totalUnits > 0
                                 ? Math.round((facility.rentedUnits / facility.totalUnits) * 100)
                                 : 0;
-                            const facilityRevenue = facility.rentedUnits * 2100000;
+                            const facilityRevenue = realized
+                                ? Number(realized.receivedRevenue)
+                                : facility.rentedUnits * 2100000;
 
                             return (
                                 <div
@@ -3522,7 +3592,7 @@ function BusinessFacilities({
    BUSINESS REVENUE
 ===================================================== */
 
-function BusinessRevenue({ facilities }) {
+function BusinessRevenue({ facilities, report, payments = [] }) {
     const [period, setPeriod] = useState("6 tháng");
     const [facilityFilter, setFacilityFilter] = useState("all");
 
@@ -3563,8 +3633,19 @@ function BusinessRevenue({ facilities }) {
         ]
     };
 
-    const currentRevenueData = revenueData[period];
-    const currentRevenue = currentRevenueData[currentRevenueData.length - 1].revenue;
+    const actualMonths = report?.monthlyRevenue || [];
+    const visibleActualMonths = period === "6 tháng"
+        ? actualMonths.slice(-6)
+        : period === "Năm 2026"
+            ? actualMonths.filter(item => item.year === 2026)
+            : actualMonths;
+    const currentRevenueData = report
+        ? visibleActualMonths.map(item => ({
+            month: `${item.month}/${item.year}`,
+            revenue: Number(item.receivedAmount)
+        }))
+        : revenueData[period].map(item => ({ ...item, revenue: item.revenue * 1000000 }));
+    const currentRevenue = currentRevenueData[currentRevenueData.length - 1]?.revenue || 0;
     const previousRevenue = currentRevenueData.length > 1
         ? currentRevenueData[currentRevenueData.length - 2].revenue
         : currentRevenue;
@@ -3572,16 +3653,13 @@ function BusinessRevenue({ facilities }) {
         ? (((currentRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
         : "0.0";
 
-    const totalRevenue = currentRevenueData.reduce(
-        (sum, item) => sum + item.revenue,
-        0
-    );
+    const totalRevenue = currentRevenueData.reduce((sum, item) => sum + item.revenue, 0);
 
     const averageRevenue = currentRevenueData.length > 0
         ? totalRevenue / currentRevenueData.length
         : 0;
 
-    const formatMillion = (value) => `${value.toLocaleString("vi-VN")}M đ`;
+    const formatMillion = (value) => `${new Intl.NumberFormat("vi-VN").format(value)} đ`;
 
     const totalRentedUnits = facilities.reduce(
         (sum, facility) => sum + facility.rentedUnits,
@@ -3598,6 +3676,7 @@ function BusinessRevenue({ facilities }) {
         : 0;
 
     const facilityRevenue = facilities.map((facility) => {
+        const realized = report?.facilities.find(item => item.facilityId === facility.id);
         const baseRate =
             facility.id === 1 ? 15.9 :
                 facility.id === 2 ? 15.2 :
@@ -3606,7 +3685,7 @@ function BusinessRevenue({ facilities }) {
 
         return {
             ...facility,
-            revenue: Math.round(facility.rentedUnits * baseRate)
+            revenue: realized ? realized.receivedRevenue : Math.round(facility.rentedUnits * baseRate) * 1000000
         };
     });
 
@@ -3621,7 +3700,7 @@ function BusinessRevenue({ facilities }) {
         1
     );
 
-    const paymentSummary = [
+    const estimatedPaymentSummary = [
         {
             label: "Tiền thuê kho",
             value: Math.round(currentRevenue * 0.78),
@@ -3638,6 +3717,20 @@ function BusinessRevenue({ facilities }) {
             icon: "💳"
         }
     ];
+    const actualPaymentsByType = payments
+        .filter(payment => payment.status === "Completed")
+        .reduce((totals, payment) => {
+            const type = payment.paymentType || "Thanh toán khác";
+            totals[type] = (totals[type] || 0) + Number(payment.amount || 0);
+            return totals;
+        }, {});
+    const paymentSummary = report
+        ? Object.entries(actualPaymentsByType).map(([label, value]) => ({
+            label,
+            value,
+            icon: label.toLowerCase().includes("deposit") ? "🔐" : "💳"
+        }))
+        : estimatedPaymentSummary;
 
     return (
         <div className="business-dashboard">
@@ -3665,7 +3758,7 @@ function BusinessRevenue({ facilities }) {
                 <div className="business-kpi-card">
                     <div className="business-kpi-top">
                         <span className="business-kpi-icon">💰</span>
-                        <span className="business-kpi-label">Doanh thu tháng này</span>
+                        <span className="business-kpi-label">{report ? "Tháng thanh toán gần nhất" : "Doanh thu tháng này"}</span>
                     </div>
                     <div className="business-kpi-value">{formatMillion(currentRevenue)}</div>
                     <div className="business-kpi-description">
@@ -3720,7 +3813,7 @@ function BusinessRevenue({ facilities }) {
                         <span
                             className="bo-revenue-text-02"
                         >
-                            Đơn vị: triệu đồng
+                            Đơn vị: VNĐ
                         </span>
                     </div>
 
@@ -3733,10 +3826,10 @@ function BusinessRevenue({ facilities }) {
                                 className="bo-revenue-flex-04"
                             >
                                 <strong className="bo-revenue-text-05">
-                                    {item.revenue}M
+                                    {formatMillion(item.revenue)}
                                 </strong>
                                 <div
-                                    title={`${item.month}: ${item.revenue}M đ`}
+                                    title={`${item.month}: ${formatMillion(item.revenue)}`}
                                     className={`bo-revenue-box-06 ${index === currentRevenueData.length - 1 ? "bo-revenue-bar-current" : "bo-revenue-bar-past"}`}
                                     style={{ height: `${Math.max(8, (item.revenue / maxRevenue) * 220)}px` }}
                                 ></div>
@@ -3752,7 +3845,7 @@ function BusinessRevenue({ facilities }) {
                     <div className="business-panel-header">
                         <div>
                             <h3>Cơ cấu doanh thu</h3>
-                            <p>Phân loại nguồn doanh thu tháng hiện tại</p>
+                            <p>Phân loại theo loại giao dịch thực tế</p>
                         </div>
                     </div>
 
@@ -3814,7 +3907,7 @@ function BusinessRevenue({ facilities }) {
                                 <span>Tổng kho</span>
                                 <span>Đang thuê</span>
                                 <span>Công suất</span>
-                                <span>Doanh thu ước tính</span>
+                                <span>{report ? "Tiền đã thu" : "Doanh thu ước tính"}</span>
                             </div>
 
                             {filteredFacilityRevenue.map((facility) => {
@@ -3875,13 +3968,23 @@ function BusinessRevenue({ facilities }) {
                     <div
                         className="bo-revenue-box-15"
                     >
-                        {[
+                        {(report ? payments
+                            .filter(payment => payment.status === "Completed")
+                            .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+                            .slice(0, 10)
+                            .map(payment => [
+                                payment.txn || `PAY-${payment.resId}`,
+                                payment.facility,
+                                payment.paymentType || "Thanh toán",
+                                formatMillion(payment.amount),
+                                "Đã thanh toán"
+                            ]) : [
                             ["INV-1026-001", "StoreSpace Quận 1", "Tiền thuê kho", "18.500.000 đ", "Đã thanh toán"],
                             ["INV-1026-002", "StoreSpace Tân Bình", "Tiền thuê kho", "15.200.000 đ", "Đã thanh toán"],
                             ["INV-1026-003", "StoreSpace Thủ Đức", "Tiền cọc", "12.000.000 đ", "Đã thanh toán"],
                             ["INV-1026-004", "StoreSpace Quận 2", "Phí phát sinh", "4.800.000 đ", "Đã thanh toán"],
                             ["INV-1026-005", "StoreSpace Quận 3", "Tiền thuê kho", "13.800.000 đ", "Đã thanh toán"]
-                        ].map((transaction, index) => (
+                        ]).map((transaction, index) => (
                             <div
                                 key={transaction[0]}
                                 className={index < 4 ? "bo-revenue-grid-23 bo-revenue-row-divider" : "bo-revenue-grid-23"}
@@ -3897,6 +4000,9 @@ function BusinessRevenue({ facilities }) {
                                 </span>
                             </div>
                         ))}
+                        {report && payments.every(payment => payment.status !== "Completed") && (
+                            <p>Chưa có giao dịch thanh toán thành công.</p>
+                        )}
                     </div>
                 </div>
             </div>
@@ -3904,7 +4010,7 @@ function BusinessRevenue({ facilities }) {
             <div
                 className="bo-revenue-box-25"
             >
-                <strong>📌 Lưu ý:</strong> Các số liệu doanh thu trong giao diện hiện là dữ liệu mô phỏng phục vụ happy case/demo. Khi kết nối backend, phần này có thể lấy trực tiếp từ các giao dịch thanh toán thực tế.
+                <strong>📌 Cách tính:</strong> Doanh thu thực thu lấy từ tổng các giao dịch có trạng thái Completed trong cơ sở dữ liệu.
             </div>
         </div>
     );
@@ -3915,7 +4021,7 @@ function BusinessRevenue({ facilities }) {
    BUSINESS DASHBOARD
 ===================================================== */
 
-function BusinessDashboard({ facilities }) {
+function BusinessDashboard({ facilities, report }) {
     const totalUnits = facilities.reduce(
         (sum, facility) => sum + facility.totalUnits,
         0
@@ -3930,6 +4036,9 @@ function BusinessDashboard({ facilities }) {
         totalUnits > 0
             ? Math.round((rentedUnits / totalUnits) * 100)
             : 0;
+    const monthlyRevenue = report?.monthlyRevenue || [];
+    const maxMonthlyRevenue = Math.max(...monthlyRevenue.map(item => Number(item.receivedAmount)), 1);
+    const formatRevenue = amount => `${new Intl.NumberFormat("vi-VN").format(amount || 0)} đ`;
 
     return (
         <div className="business-dashboard">
@@ -4026,11 +4135,11 @@ function BusinessDashboard({ facilities }) {
                     </div>
 
                     <div className="business-kpi-value">
-                        428M
+                        {formatRevenue(report?.totalRevenue)}
                     </div>
 
                     <div className="business-kpi-description">
-                        +12.5% so với tháng trước
+                        Tổng tiền giao dịch thanh toán thành công
                     </div>
                 </div>
 
@@ -4047,9 +4156,7 @@ function BusinessDashboard({ facilities }) {
                                 Doanh thu
                             </h3>
 
-                            <p>
-                                Doanh thu trong 6 tháng gần nhất
-                            </p>
+                            <p>Tiền thực thu theo ngày ghi nhận thanh toán</p>
                         </div>
 
                         <select className="business-select">
@@ -4062,15 +4169,6 @@ function BusinessDashboard({ facilities }) {
 
                     <div className="business-chart">
 
-                        <div className="chart-y-axis">
-                            <span>500M</span>
-                            <span>400M</span>
-                            <span>300M</span>
-                            <span>200M</span>
-                            <span>100M</span>
-                            <span>0</span>
-                        </div>
-
                         <div className="chart-area">
 
                             <div className="chart-grid-line"></div>
@@ -4079,51 +4177,21 @@ function BusinessDashboard({ facilities }) {
                             <div className="chart-grid-line"></div>
                             <div className="chart-grid-line"></div>
 
-                            <div className="chart-bars">
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar bo-dashboard-box-01"
-                                    ></div>
-                                    <span>May</span>
+                            {monthlyRevenue.length ? (
+                                <div className="chart-bars">
+                                    {monthlyRevenue.map(item => (
+                                        <div className="chart-column" key={`${item.year}-${item.month}`} title={formatRevenue(item.receivedAmount)}>
+                                            <div
+                                                className="chart-bar"
+                                                style={{ height: `${Math.max(4, Number(item.receivedAmount) / maxMonthlyRevenue * 100)}%` }}
+                                            />
+                                            <span>{`${item.month}/${item.year}`}</span>
+                                        </div>
+                                    ))}
                                 </div>
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar bo-dashboard-box-02"
-                                    ></div>
-                                    <span>Jun</span>
-                                </div>
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar bo-dashboard-box-03"
-                                    ></div>
-                                    <span>Jul</span>
-                                </div>
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar bo-dashboard-box-04"
-                                    ></div>
-                                    <span>Aug</span>
-                                </div>
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar bo-dashboard-box-05"
-                                    ></div>
-                                    <span>Sep</span>
-                                </div>
-
-                                <div className="chart-column">
-                                    <div
-                                        className="chart-bar active bo-dashboard-box-06"
-                                    ></div>
-                                    <span>Oct</span>
-                                </div>
-
-                            </div>
+                            ) : (
+                                <p>Chưa có giao dịch thanh toán thành công.</p>
+                            )}
 
                         </div>
 

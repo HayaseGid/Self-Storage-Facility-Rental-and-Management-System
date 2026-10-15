@@ -6,12 +6,53 @@
 // - Only the customer-related components were moved here.
 // - Shared data/functions are received from App.jsx via props.
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { fetchCustomerReservations } from './api/operations.js'
+
+const toDateLabel = value => value
+  ? new Date(`${String(value).slice(0, 10)}T00:00:00Z`).toLocaleDateString('vi-VN', { timeZone: 'UTC' })
+  : '—'
+
+function mapCustomerReservation(reservation) {
+  const startDate = String(reservation.startDate || '').slice(0, 10)
+  const endDate = String(reservation.endDate || '').slice(0, 10)
+  const start = Date.parse(`${startDate}T00:00:00Z`)
+  const end = Date.parse(`${endDate}T00:00:00Z`)
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  const totalDays = Math.max(1, Math.ceil((end - start) / 86400000) + 1)
+  const remainingDays = Math.max(0, Math.ceil((end - today.getTime()) / 86400000) + 1)
+  const status = reservation.status === 'Handed Over'
+    ? 'Đang thuê'
+    : reservation.status === 'Confirmed'
+      ? 'Đã phân kho · chờ bàn giao'
+      : reservation.status === 'Paid'
+        ? 'Đã thanh toán · chờ phân kho'
+        : 'Chờ thanh toán'
+
+  return {
+    reservationId: reservation.reservationId,
+    facility: reservation.facility,
+    unitId: reservation.unitNumber || 'Chưa phân kho',
+    type: reservation.unitType,
+    size: reservation.size || '',
+    price: `${new Intl.NumberFormat('vi-VN').format((reservation.rentalAmount || 0) / Math.max(1, reservation.months))}đ/tháng`,
+    startDate: toDateLabel(startDate),
+    endDate: toDateLabel(endDate),
+    totalDays,
+    remainingDays,
+    progress: Math.min(100, Math.max(0, Math.round(((totalDays - remainingDays) / totalDays) * 100))),
+    contractId: reservation.contractId,
+    contractStatus: reservation.contractStatus,
+    accessType: reservation.accessType,
+    accessValue: reservation.accessValue,
+    status,
+    paymentStatus: reservation.paymentStatus,
+  }
+}
 
 function MyStoragePage({ customerRental, customerRentals, facilities }) {
-  // Đã cập nhật: Hiển thị nhiều kho (kho Staff vừa bàn giao + Kho mẫu)
-  const rentals = customerRentals && customerRentals.length ? customerRentals : [customerRental]
-  //Đã thêm: 05/10/2026
+  const rentals = customerRentals || (customerRental ? [customerRental] : [])
 
   return (
     <div className="customer-content-page">
@@ -30,10 +71,11 @@ function MyStoragePage({ customerRental, customerRentals, facilities }) {
         </div>
 
         <span className="page-count">
-          {rentals.length} kho đang thuê 
+          {rentals.filter(item => item.status === 'Đang thuê').length} kho đang thuê
         </span>
       </div>
 
+      {rentals.length === 0 && <div className="empty-state">Bạn chưa có kho hoặc hợp đồng thuê nào.</div>}
       {rentals.map(rental => (
       <div key={rental.contractId || rental.unitId} style={{ marginBottom: 28 }}>
       <div className="my-storage-card">
@@ -64,9 +106,7 @@ function MyStoragePage({ customerRental, customerRentals, facilities }) {
               </p>
             </div>
 
-            <span className="storage-status">
-              ● Đang thuê
-            </span>
+            <span className="storage-status">● {rental.status || 'Đang thuê'}</span>
           </div>
 
           <div className="storage-info-grid">
@@ -2061,8 +2101,7 @@ function BookingPage({ facilities, storageUnits, getCurrentUser }) {
 }
 
 function ContractPage({ customerRental, customerRentals, getCurrentUser }) {
-  // Đã cập nhật: Mỗi kho một hợp đồng, mã lấy từ contractId (05/10/2026)
-  const rentals = customerRentals && customerRentals.length ? customerRentals : [customerRental]
+  const rentals = customerRentals || (customerRental ? [customerRental] : [])
 
   return (
     <div className="customer-content-page">
@@ -2081,6 +2120,7 @@ function ContractPage({ customerRental, customerRentals, getCurrentUser }) {
         </div>
       </div>
 
+      {rentals.length === 0 && <div className="empty-state">Bạn chưa có hợp đồng thuê.</div>}
       {rentals.map(rental => (
       <div key={rental.contractId || rental.unitId} style={{ marginBottom: 28 }}>
       <div className="contract-card">
@@ -2100,7 +2140,7 @@ function ContractPage({ customerRental, customerRentals, getCurrentUser }) {
           </div>
 
           <span className="contract-status">
-            Đang hiệu lực
+            {rental.contractStatus || rental.status || 'Đang hiệu lực'}
           </span>
 
         </div>
@@ -2218,8 +2258,32 @@ function ContractPage({ customerRental, customerRentals, getCurrentUser }) {
 
 function CustomerDashboard({ facilities, storageUnits, customerRental, customerRentals, getCurrentUser, navigate, currentUserKey }) {
   const user = getCurrentUser()
-  // Đã cập nhật: Danh sách kho đang thuê, kho Staff vừa bàn giao đứng đầu (05/10/2026)
-  const rentals = customerRentals && customerRentals.length ? customerRentals : [customerRental]
+  const [serverRentals, setServerRentals] = useState(null)
+  const [rentalError, setRentalError] = useState('')
+  useEffect(() => {
+    if (!user?.email) {
+      setServerRentals(null)
+      return
+    }
+    let cancelled = false
+    fetchCustomerReservations(user.email)
+      .then(records => {
+        if (!cancelled) {
+          setServerRentals(records.map(mapCustomerReservation))
+          setRentalError('')
+        }
+      })
+      .catch(error => {
+        console.error('[API] Customer reservations could not be loaded:', error)
+        if (!cancelled) {
+          setServerRentals([])
+          setRentalError(error.message || 'Không thể tải hợp đồng từ máy chủ.')
+        }
+      })
+    return () => { cancelled = true }
+  }, [user?.email])
+  const fallbackRentals = customerRentals?.length ? customerRentals : customerRental ? [customerRental] : []
+  const rentals = serverRentals ?? fallbackRentals
   const rental = rentals[0]
   const [activeSection, setActiveSection] = useState('overview')
 
@@ -2314,6 +2378,7 @@ function CustomerDashboard({ facilities, storageUnits, customerRental, customerR
       </aside>
 
       <main className="customer-main">
+        {rentalError && <div className="auth-message error" role="alert">{rentalError}</div>}
 
         <div className="customer-topbar">
           <div>
